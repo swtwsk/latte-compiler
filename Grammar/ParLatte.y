@@ -8,10 +8,10 @@ import ErrM
 
 }
 
-%name pProgram Program
 -- no lexer declaration
 %monad { Err } { thenM } { returnM }
 %tokentype {Token}
+%name pProgram_internal Program
 %token
   '!' { PT _ (TS _ 1) }
   '!=' { PT _ (TS _ 2) }
@@ -47,99 +47,329 @@ import ErrM
   '||' { PT _ (TS _ 32) }
   '}' { PT _ (TS _ 33) }
 
-L_ident  { PT _ (TV $$) }
-L_integ  { PT _ (TI $$) }
-L_quoted { PT _ (TL $$) }
-
+  L_ident {PT _ (TV _)}
+  L_integ {PT _ (TI _)}
+  L_quoted {PT _ (TL _)}
 
 %%
 
-Ident   :: { Ident }   : L_ident  { Ident $1 }
-Integer :: { Integer } : L_integ  { (read ( $1)) :: Integer }
-String  :: { String }  : L_quoted {  $1 }
+Ident :: {
+  (Maybe (Int, Int), Ident)
+}
+: L_ident {
+  (Just (tokenLineCol $1), Ident (prToken $1)) 
+}
 
-Program :: { Program }
-Program : ListTopDef { AbsLatte.Program $1 }
-TopDef :: { TopDef }
-TopDef : Type Ident '(' ListArg ')' Block { AbsLatte.FnDef $1 $2 $4 $6 }
-ListTopDef :: { [TopDef] }
-ListTopDef : TopDef { (:[]) $1 } | TopDef ListTopDef { (:) $1 $2 }
-Arg :: { Arg }
-Arg : Type Ident { AbsLatte.Arg $1 $2 }
-ListArg :: { [Arg] }
-ListArg : {- empty -} { [] }
-        | Arg { (:[]) $1 }
-        | Arg ',' ListArg { (:) $1 $3 }
-Block :: { Block }
-Block : '{' ListStmt '}' { AbsLatte.Block (reverse $2) }
-ListStmt :: { [Stmt] }
-ListStmt : {- empty -} { [] } | ListStmt Stmt { flip (:) $1 $2 }
-Stmt :: { Stmt }
-Stmt : ';' { AbsLatte.Empty }
-     | Block { AbsLatte.BStmt $1 }
-     | Type ListItem ';' { AbsLatte.Decl $1 $2 }
-     | Ident '=' Expr ';' { AbsLatte.Ass $1 $3 }
-     | Ident '++' ';' { AbsLatte.Incr $1 }
-     | Ident '--' ';' { AbsLatte.Decr $1 }
-     | 'return' Expr ';' { AbsLatte.Ret $2 }
-     | 'return' ';' { AbsLatte.VRet }
-     | 'if' '(' Expr ')' Stmt { AbsLatte.Cond $3 $5 }
-     | 'if' '(' Expr ')' Stmt 'else' Stmt { AbsLatte.CondElse $3 $5 $7 }
-     | 'while' '(' Expr ')' Stmt { AbsLatte.While $3 $5 }
-     | Expr ';' { AbsLatte.SExp $1 }
-Item :: { Item }
-Item : Ident { AbsLatte.NoInit $1 }
-     | Ident '=' Expr { AbsLatte.Init $1 $3 }
-ListItem :: { [Item] }
-ListItem : Item { (:[]) $1 } | Item ',' ListItem { (:) $1 $3 }
-Type :: { Type }
-Type : 'int' { AbsLatte.Int }
-     | 'string' { AbsLatte.Str }
-     | 'boolean' { AbsLatte.Bool }
-     | 'void' { AbsLatte.Void }
-ListType :: { [Type] }
-ListType : {- empty -} { [] }
-         | Type { (:[]) $1 }
-         | Type ',' ListType { (:) $1 $3 }
-Expr6 :: { Expr }
-Expr6 : Ident { AbsLatte.EVar $1 }
-      | Integer { AbsLatte.ELitInt $1 }
-      | 'true' { AbsLatte.ELitTrue }
-      | 'false' { AbsLatte.ELitFalse }
-      | Ident '(' ListExpr ')' { AbsLatte.EApp $1 $3 }
-      | String { AbsLatte.EString $1 }
-      | '(' Expr ')' { $2 }
-Expr5 :: { Expr }
-Expr5 : '-' Expr6 { AbsLatte.Neg $2 }
-      | '!' Expr6 { AbsLatte.Not $2 }
-      | Expr6 { $1 }
-Expr4 :: { Expr }
-Expr4 : Expr4 MulOp Expr5 { AbsLatte.EMul $1 $2 $3 } | Expr5 { $1 }
-Expr3 :: { Expr }
-Expr3 : Expr3 AddOp Expr4 { AbsLatte.EAdd $1 $2 $3 } | Expr4 { $1 }
-Expr2 :: { Expr }
-Expr2 : Expr2 RelOp Expr3 { AbsLatte.ERel $1 $2 $3 } | Expr3 { $1 }
-Expr1 :: { Expr }
-Expr1 : Expr2 '&&' Expr1 { AbsLatte.EAnd $1 $3 } | Expr2 { $1 }
-Expr :: { Expr }
-Expr : Expr1 '||' Expr { AbsLatte.EOr $1 $3 } | Expr1 { $1 }
-ListExpr :: { [Expr] }
-ListExpr : {- empty -} { [] }
-         | Expr { (:[]) $1 }
-         | Expr ',' ListExpr { (:) $1 $3 }
-AddOp :: { AddOp }
-AddOp : '+' { AbsLatte.Plus } | '-' { AbsLatte.Minus }
-MulOp :: { MulOp }
-MulOp : '*' { AbsLatte.Times }
-      | '/' { AbsLatte.Div }
-      | '%' { AbsLatte.Mod }
-RelOp :: { RelOp }
-RelOp : '<' { AbsLatte.LTH }
-      | '<=' { AbsLatte.LE }
-      | '>' { AbsLatte.GTH }
-      | '>=' { AbsLatte.GE }
-      | '==' { AbsLatte.EQU }
-      | '!=' { AbsLatte.NE }
+Integer :: {
+  (Maybe (Int, Int), Integer)
+}
+: L_integ {
+  (Just (tokenLineCol $1), read (prToken $1)) 
+}
+
+String :: {
+  (Maybe (Int, Int), String)
+}
+: L_quoted {
+  (Just (tokenLineCol $1), prToken $1)
+}
+
+Program :: {
+  (Maybe (Int, Int), Program (Maybe (Int, Int)))
+}
+: ListTopDef {
+  (fst $1, AbsLatte.Program (fst $1)(snd $1)) 
+}
+
+TopDef :: {
+  (Maybe (Int, Int), TopDef (Maybe (Int, Int)))
+}
+: Type Ident '(' ListArg ')' Block {
+  (fst $1, AbsLatte.FnDef (fst $1)(snd $1)(snd $2)(snd $4)(snd $6)) 
+}
+
+ListTopDef :: {
+  (Maybe (Int, Int), [TopDef (Maybe (Int, Int))]) 
+}
+: TopDef {
+  (fst $1, (:[]) (snd $1)) 
+}
+| TopDef ListTopDef {
+  (fst $1, (:) (snd $1)(snd $2)) 
+}
+
+Arg :: {
+  (Maybe (Int, Int), Arg (Maybe (Int, Int)))
+}
+: Type Ident {
+  (fst $1, AbsLatte.Arg (fst $1)(snd $1)(snd $2)) 
+}
+
+ListArg :: {
+  (Maybe (Int, Int), [Arg (Maybe (Int, Int))]) 
+}
+: {
+  (Nothing, [])
+}
+| Arg {
+  (fst $1, (:[]) (snd $1)) 
+}
+| Arg ',' ListArg {
+  (fst $1, (:) (snd $1)(snd $3)) 
+}
+
+Block :: {
+  (Maybe (Int, Int), Block (Maybe (Int, Int)))
+}
+: '{' ListStmt '}' {
+  (Just (tokenLineCol $1), AbsLatte.Block (Just (tokenLineCol $1)) (reverse (snd $2)))
+}
+
+ListStmt :: {
+  (Maybe (Int, Int), [Stmt (Maybe (Int, Int))]) 
+}
+: {
+  (Nothing, [])
+}
+| ListStmt Stmt {
+  (fst $1, flip (:) (snd $1)(snd $2)) 
+}
+
+Stmt :: {
+  (Maybe (Int, Int), Stmt (Maybe (Int, Int)))
+}
+: ';' {
+  (Just (tokenLineCol $1), AbsLatte.Empty (Just (tokenLineCol $1)))
+}
+| Block {
+  (fst $1, AbsLatte.BStmt (fst $1)(snd $1)) 
+}
+| Type ListItem ';' {
+  (fst $1, AbsLatte.Decl (fst $1)(snd $1)(snd $2)) 
+}
+| Ident '=' Expr ';' {
+  (fst $1, AbsLatte.Ass (fst $1)(snd $1)(snd $3)) 
+}
+| Ident '++' ';' {
+  (fst $1, AbsLatte.Incr (fst $1)(snd $1)) 
+}
+| Ident '--' ';' {
+  (fst $1, AbsLatte.Decr (fst $1)(snd $1)) 
+}
+| 'return' Expr ';' {
+  (Just (tokenLineCol $1), AbsLatte.Ret (Just (tokenLineCol $1)) (snd $2)) 
+}
+| 'return' ';' {
+  (Just (tokenLineCol $1), AbsLatte.VRet (Just (tokenLineCol $1)))
+}
+| 'if' '(' Expr ')' Stmt {
+  (Just (tokenLineCol $1), AbsLatte.Cond (Just (tokenLineCol $1)) (snd $3)(snd $5)) 
+}
+| 'if' '(' Expr ')' Stmt 'else' Stmt {
+  (Just (tokenLineCol $1), AbsLatte.CondElse (Just (tokenLineCol $1)) (snd $3)(snd $5)(snd $7)) 
+}
+| 'while' '(' Expr ')' Stmt {
+  (Just (tokenLineCol $1), AbsLatte.While (Just (tokenLineCol $1)) (snd $3)(snd $5)) 
+}
+| Expr ';' {
+  (fst $1, AbsLatte.SExp (fst $1)(snd $1)) 
+}
+
+Item :: {
+  (Maybe (Int, Int), Item (Maybe (Int, Int)))
+}
+: Ident {
+  (fst $1, AbsLatte.NoInit (fst $1)(snd $1)) 
+}
+| Ident '=' Expr {
+  (fst $1, AbsLatte.Init (fst $1)(snd $1)(snd $3)) 
+}
+
+ListItem :: {
+  (Maybe (Int, Int), [Item (Maybe (Int, Int))]) 
+}
+: Item {
+  (fst $1, (:[]) (snd $1)) 
+}
+| Item ',' ListItem {
+  (fst $1, (:) (snd $1)(snd $3)) 
+}
+
+Type :: {
+  (Maybe (Int, Int), Type (Maybe (Int, Int)))
+}
+: 'int' {
+  (Just (tokenLineCol $1), AbsLatte.Int (Just (tokenLineCol $1)))
+}
+| 'string' {
+  (Just (tokenLineCol $1), AbsLatte.Str (Just (tokenLineCol $1)))
+}
+| 'boolean' {
+  (Just (tokenLineCol $1), AbsLatte.Bool (Just (tokenLineCol $1)))
+}
+| 'void' {
+  (Just (tokenLineCol $1), AbsLatte.Void (Just (tokenLineCol $1)))
+}
+
+ListType :: {
+  (Maybe (Int, Int), [Type (Maybe (Int, Int))]) 
+}
+: {
+  (Nothing, [])
+}
+| Type {
+  (fst $1, (:[]) (snd $1)) 
+}
+| Type ',' ListType {
+  (fst $1, (:) (snd $1)(snd $3)) 
+}
+
+Expr6 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Ident {
+  (fst $1, AbsLatte.EVar (fst $1)(snd $1)) 
+}
+| Integer {
+  (fst $1, AbsLatte.ELitInt (fst $1)(snd $1)) 
+}
+| 'true' {
+  (Just (tokenLineCol $1), AbsLatte.ELitTrue (Just (tokenLineCol $1)))
+}
+| 'false' {
+  (Just (tokenLineCol $1), AbsLatte.ELitFalse (Just (tokenLineCol $1)))
+}
+| Ident '(' ListExpr ')' {
+  (fst $1, AbsLatte.EApp (fst $1)(snd $1)(snd $3)) 
+}
+| String {
+  (fst $1, AbsLatte.EString (fst $1)(snd $1)) 
+}
+| '(' Expr ')' {
+  (Just (tokenLineCol $1), snd $2)
+}
+
+Expr5 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: '-' Expr6 {
+  (Just (tokenLineCol $1), AbsLatte.Neg (Just (tokenLineCol $1)) (snd $2)) 
+}
+| '!' Expr6 {
+  (Just (tokenLineCol $1), AbsLatte.Not (Just (tokenLineCol $1)) (snd $2)) 
+}
+| Expr6 {
+  (fst $1, snd $1)
+}
+
+Expr4 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Expr4 MulOp Expr5 {
+  (fst $1, AbsLatte.EMul (fst $1)(snd $1)(snd $2)(snd $3)) 
+}
+| Expr5 {
+  (fst $1, snd $1)
+}
+
+Expr3 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Expr3 AddOp Expr4 {
+  (fst $1, AbsLatte.EAdd (fst $1)(snd $1)(snd $2)(snd $3)) 
+}
+| Expr4 {
+  (fst $1, snd $1)
+}
+
+Expr2 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Expr2 RelOp Expr3 {
+  (fst $1, AbsLatte.ERel (fst $1)(snd $1)(snd $2)(snd $3)) 
+}
+| Expr3 {
+  (fst $1, snd $1)
+}
+
+Expr1 :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Expr2 '&&' Expr1 {
+  (fst $1, AbsLatte.EAnd (fst $1)(snd $1)(snd $3)) 
+}
+| Expr2 {
+  (fst $1, snd $1)
+}
+
+Expr :: {
+  (Maybe (Int, Int), Expr (Maybe (Int, Int)))
+}
+: Expr1 '||' Expr {
+  (fst $1, AbsLatte.EOr (fst $1)(snd $1)(snd $3)) 
+}
+| Expr1 {
+  (fst $1, snd $1)
+}
+
+ListExpr :: {
+  (Maybe (Int, Int), [Expr (Maybe (Int, Int))]) 
+}
+: {
+  (Nothing, [])
+}
+| Expr {
+  (fst $1, (:[]) (snd $1)) 
+}
+| Expr ',' ListExpr {
+  (fst $1, (:) (snd $1)(snd $3)) 
+}
+
+AddOp :: {
+  (Maybe (Int, Int), AddOp (Maybe (Int, Int)))
+}
+: '+' {
+  (Just (tokenLineCol $1), AbsLatte.Plus (Just (tokenLineCol $1)))
+}
+| '-' {
+  (Just (tokenLineCol $1), AbsLatte.Minus (Just (tokenLineCol $1)))
+}
+
+MulOp :: {
+  (Maybe (Int, Int), MulOp (Maybe (Int, Int)))
+}
+: '*' {
+  (Just (tokenLineCol $1), AbsLatte.Times (Just (tokenLineCol $1)))
+}
+| '/' {
+  (Just (tokenLineCol $1), AbsLatte.Div (Just (tokenLineCol $1)))
+}
+| '%' {
+  (Just (tokenLineCol $1), AbsLatte.Mod (Just (tokenLineCol $1)))
+}
+
+RelOp :: {
+  (Maybe (Int, Int), RelOp (Maybe (Int, Int)))
+}
+: '<' {
+  (Just (tokenLineCol $1), AbsLatte.LTH (Just (tokenLineCol $1)))
+}
+| '<=' {
+  (Just (tokenLineCol $1), AbsLatte.LE (Just (tokenLineCol $1)))
+}
+| '>' {
+  (Just (tokenLineCol $1), AbsLatte.GTH (Just (tokenLineCol $1)))
+}
+| '>=' {
+  (Just (tokenLineCol $1), AbsLatte.GE (Just (tokenLineCol $1)))
+}
+| '==' {
+  (Just (tokenLineCol $1), AbsLatte.EQU (Just (tokenLineCol $1)))
+}
+| '!=' {
+  (Just (tokenLineCol $1), AbsLatte.NE (Just (tokenLineCol $1)))
+}
+
 {
 
 returnM :: a -> Err a
@@ -157,5 +387,7 @@ happyError ts =
     t:_ -> " before `" ++ id(prToken t) ++ "'"
 
 myLexer = tokens
+
+pProgram = (>>= return . snd) . pProgram_internal
 }
 
