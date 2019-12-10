@@ -7,16 +7,16 @@ import System.Environment ( getArgs, getProgName )
 import System.Exit ( exitFailure, exitSuccess )
 import Control.Monad (when)
 
-import LexLatte
-import ParLatte
-import SkelLatte
-import PrintLatte
-import AbsLatte
+import AST.LexLatte
+import AST.ParLatte
+import AST.SkelLatte
+import AST.PrintLatte
+import AST.AbsLatte
 
 
 
 
-import ErrM
+import AST.ErrM
 
 type ParseFun a = [Token] -> Err a
 

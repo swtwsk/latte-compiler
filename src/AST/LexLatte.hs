@@ -1,9 +1,9 @@
 {-# LANGUAGE CPP,MagicHash #-}
-{-# LINE 3 "LexLatte.x" #-}
+{-# LINE 3 "AST/LexLatte.x" #-}
 
 {-# OPTIONS -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -w #-}
-module LexLatte where
+module AST.LexLatte where
 
 
 
@@ -42,7 +42,7 @@ alex_deflt :: AlexAddr
 alex_deflt = AlexA# "\xff\xff\x0f\x00\xff\xff\xff\xff\xff\xff\xff\xff\x0f\x00\x0f\x00\x10\x00\x10\x00\x12\x00\x12\x00\x14\x00\xff\xff\x14\x00\x0f\x00\x1a\x00\x1a\x00\x1d\x00\x1d\x00\xff\xff\xff\xff\xff\xff\xff\xff\x1f\x00\x1f\x00\x1f\x00\x1e\x00\x1e\x00\x1e\x00\x1e\x00\x1f\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"#
 
 alex_accept = listArray (0::Int,41) [AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccNone,AlexAccSkip,AlexAccSkip,AlexAccSkip,AlexAccSkip,AlexAcc (alex_action_4),AlexAcc (alex_action_4),AlexAcc (alex_action_4),AlexAcc (alex_action_4),AlexAcc (alex_action_4),AlexAcc (alex_action_5),AlexAcc (alex_action_6),AlexAcc (alex_action_7)]
-{-# LINE 40 "LexLatte.x" #-}
+{-# LINE 40 "AST/LexLatte.x" #-}
 
 
 tok :: (Posn -> String -> Token) -> (Posn -> String -> Token)
