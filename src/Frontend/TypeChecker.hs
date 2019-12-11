@@ -8,11 +8,13 @@ import Control.Monad.Reader
 import Control.Monad.Except
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Control.Applicative ((<*>))
+import Control.Monad (unless, void)
 import Data.List (foldl')
-import Data.Either (isLeft)
 import Data.Bifunctor (bimap)
 
 import AST.AbsLatte
+import Frontend.ConstantExpressions (evaluateBool)
 
 type TypeU = Type ()
 data TypeM = TypeM { _type :: TypeU, _outer :: Bool }
@@ -40,7 +42,7 @@ library = Map.fromList [ ("printInt", typeM $ fun voidT [int])
                        , ("readInt", typeM $ fun int [])
                        , ("readString", typeM $ fun string []) ]
     where
-        fun a b = Fun () a b
+        fun = Fun ()
         int = Int ()
         string = Str ()
         voidT = Void ()
@@ -48,10 +50,10 @@ library = Map.fromList [ ("printInt", typeM $ fun voidT [int])
 typeCheck :: Program PosType -> TypeCheckResult
 typeCheck (Program _ topdefs) = either bad (const GoodChecked) $
     runExcept (runReaderT (forM_ topdefs checkTopDef) fundefs)
-    where bad = BadChecked . (bimap id ("Typecheck error: " ++))
-          fundefs = foldl' insertFunDef library (map unitType topdefs)
+    where bad = BadChecked . bimap id ("Typecheck error: " ++)
+          fundefs = foldl' insertFunDef library (map void topdefs)
           insertFunDef acc (FnDef _ t (Ident i) args _) = 
-            let argTs = foldr (\(Arg _ at _) -> ((unitType at):)) [] args
+            let argTs = foldr (\(Arg _ at _) -> (void at :)) [] args
                 newT  = typeM $ Fun () t argTs
             in Map.insert i newT acc
 
@@ -60,17 +62,19 @@ checkTopDef (FnDef pos t (Ident i) args block) = do
     unique $ fmap fst argsWithT
     newEnv <- asks (Map.union (Map.fromList argsWithT))
     bType <- either throwError return $ evalTCState (checkBlock block) newEnv
-    maybe throwNoRet (\t'' -> if t' == t'' then return () else throwError (typeErr t'')) bType
+    case bType of
+        Nothing -> throwNoRet
+        Just t'' -> unless (t' == t'') $ throwError (typeErr t'')
     where
-        t' = unitType t
-        extractArg (Arg _ at (Ident i)) = (i, typeM $ unitType at)
+        t' = void t
+        extractArg (Arg _ at (Ident i)) = (i, typeM $ void at)
         argsWithT = foldr ((:) . extractArg) [] args
         throwNoRet = case t' of
             Void _ -> return ()
             _ -> throwError (pos, "No return inside function " ++ i)
         typeErr t'' = (pos, "Expected function " ++ i ++ " to have a type " ++ show t' ++ ", but a return inside it returns type " ++ show t'')
         unique :: [String] -> TCReader ()
-        unique l = foldM_ (\acc el -> if el `Set.member` acc then throwError (pos, "Duplicated argument " ++ el ++ " in function " ++ i) else return $ el `Set.insert` acc) Set.empty l
+        unique = foldM_ (\acc el -> if el `Set.member` acc then throwError (pos, "Duplicated argument " ++ el ++ " in function " ++ i) else return $ el `Set.insert` acc) Set.empty
 
 checkBlock :: Block PosType -> TCState (Maybe TypeU)
 checkBlock (Block pos stmts) = do
@@ -83,29 +87,29 @@ checkBlock (Block pos stmts) = do
                 l@(Left _) -> l) (Right Nothing) checked
     either (\l -> throwError (pos, l)) return checked'
 
-checkStmt :: (Stmt PosType) -> TCState (Maybe TypeU)
+checkStmt :: Stmt PosType -> TCState (Maybe TypeU)
 checkStmt (Empty _) = return Nothing
 checkStmt (BStmt _ block) = do
     env <- gets (Map.map (\v -> v {_outer = True}))
     either throwError return $ evalTCState (checkBlock block) env
 checkStmt (Decl pos t items) = do
-    let foldF = \acc el -> do
+    let foldF acc el = do
             i  <- extractIdent el
             v  <- gets (Map.lookup i)
             i' <- maybe (return i) (\jv -> if _outer jv then return i else throwError (pos, "Redefinition of variable " ++ i)) v
-            return $ (i, typeM $ t'):acc
+            return $ (i, typeM t'):acc
     typedItems <- foldM foldF [] items
     let typedItemsMap = Map.fromList typedItems
     modify (Map.union typedItemsMap)
     return Nothing
     where
-        t' = unitType t
+        t' = void t
         extractIdent :: Item PosType -> TCState String
         extractIdent (NoInit _ (Ident i)) = return i
         extractIdent (Init pos (Ident i) expr) = do
             env <- get
             let err = evalTCState (checkExpr expr) env
-            flip (either throwError) err $ (\et -> if et == t' then return i else throwError (pos, "Expected expression " ++ show expr ++ " to have type " ++ show t' ++ ", but it has type " ++ show et))
+            flip (either throwError) err (\et -> if et == t' then return i else throwError (pos, "Expected expression " ++ show expr ++ " to have type " ++ show t' ++ ", but it has type " ++ show et))
 checkStmt (Ass pos (Ident i) expr) = do
     iType <- lookupOrThrow i lookupErr
     exprType <- checkExpr expr
@@ -114,19 +118,9 @@ checkStmt (Ass pos (Ident i) expr) = do
     where
         lookupErr = (pos, "Undeclared variable " ++ i)
         err it et = (pos, "Expected expression " ++ show expr ++ " to have type " ++ show it ++ ", but it has type " ++ show et)
-checkStmt (Incr pos (Ident i)) = do
-    iType <- lookupOrThrow i lookupErr
-    when (iType /= Int ()) $ throwError (pos, i ++ " has type " ++ show iType ++ ", when is expected to have " ++ show (Int ()))
-    return Nothing
-    where
-        lookupErr = (pos, "Undeclared variable " ++ i)
-checkStmt (Decr pos (Ident i)) = do
-    iType <- lookupOrThrow i lookupErr
-    when (iType /= Int ()) $ throwError (pos, i ++ " has type " ++ show iType ++ ", when is expected to have " ++ show (Int ())) 
-    return Nothing
-    where
-        lookupErr = (pos, "Undeclared variable " ++ i)
-checkStmt (Ret _ expr) = checkExpr expr >>= return . Just
+checkStmt (Incr pos (Ident i)) = checkIncrExpr i pos
+checkStmt (Decr pos (Ident i)) = checkIncrExpr i pos
+checkStmt (Ret _ expr) = Just <$> checkExpr expr
 checkStmt (VRet _) = return . Just $ Void ()
 checkStmt (Cond pos expr stmt) = do
     eType <- checkExpr expr
@@ -143,7 +137,7 @@ checkStmt (While pos expr stmt) = do
     checkStmt stmt
 checkStmt (SExp _ expr) = checkExpr expr >> return Nothing
 
-checkExpr :: (Expr PosType) -> TCState (TypeU)
+checkExpr :: Expr PosType -> TCState TypeU
 checkExpr (EVar pos (Ident i)) =
     lookupOrThrow i (pos, "Undeclared variable " ++ i)
 checkExpr (ELitInt _ _) = justType Int
@@ -158,10 +152,10 @@ checkExpr (EApp pos (Ident i) exprs) = do
         throwError (pos, "Wrong number of arguments of function " ++ i)
     env <- get
     let typedExprs = zip3 argTypes exprs [1..]
-        foldF = \(t, e, i) -> do
-            t'  <- (evalTCState (checkExpr e) env)
+        foldF (t, e, i) = do
+            t'  <- evalTCState (checkExpr e) env
             if t == t' then Right ()
-            else Left $ (pos, nthErr i t t')
+            else Left (pos, nthErr i t t')
         checked = foldr (\e -> (foldF e :)) [] typedExprs
     either throwError (constReturn retType) (sequence checked)
     where
@@ -190,17 +184,24 @@ checkExpr (EAdd pos e1 op e2) = case op of
             Str _ -> justType Str
             _ -> throwError (pos, "Cannot add/concat expressions of type " ++ show et1)
 checkExpr (ERel pos e1 op e2) = case op of
-    EQU _ -> do
-        te1 <- checkExpr e1
-        te2 <- checkExpr e2
-        (checkIntExpr e1 e2 pos `catchError` (\_ -> checkBoolExpr e1 e2 pos)) `catchError` (\_ -> throwError (pos, "Cannot check equality of types " ++ show te1 ++ " and " ++ show te2)) >> justType Bool
-    NE _  -> do
-        te1 <- checkExpr e1
-        te2 <- checkExpr e2
-        (checkIntExpr e1 e2 pos `catchError` (\_ -> checkBoolExpr e1 e2 pos)) `catchError` (\_ -> throwError (pos, "Cannot check equality of types " ++ show te1 ++ " and " ++ show te2)) >> justType Bool
+    EQU _ -> checkEQExpr
+    NE _  -> checkEQExpr
     _ -> checkIntExpr e1 e2 pos >> justType Bool
+    where
+        checkEQExpr = do
+            te1 <- checkExpr e1
+            te2 <- checkExpr e2
+            (checkIntExpr e1 e2 pos `catchError` (\_ -> checkBoolExpr e1 e2 pos)) `catchError` (\_ -> throwError (pos, "Cannot check equality of types " ++ show te1 ++ " and " ++ show te2)) >> justType Bool
 checkExpr (EAnd pos e1 e2)   = checkBoolExpr e1 e2 pos
 checkExpr (EOr pos e1 e2)    = checkBoolExpr e1 e2 pos
+
+checkIncrExpr :: String -> PosType -> TCState (Maybe TypeU)
+checkIncrExpr i pos = do
+    iType <- lookupOrThrow i lookupErr
+    when (iType /= Int ()) $ throwError (pos, i ++ " has type " ++ show iType ++ ", when is expected to have " ++ show (Int ()))
+    return Nothing
+    where
+        lookupErr = (pos, "Undeclared variable " ++ i)
 
 checkIntExpr :: Expr PosType -> Expr PosType -> PosType -> TCState TypeU
 checkIntExpr = checkTypedExpr (Int ())
@@ -227,6 +228,3 @@ lookupOrThrow k err = do
 
 constReturn :: Monad m => a -> b -> m a
 constReturn x = const (return x)
-
-unitType :: (Functor a) => a b -> a ()
-unitType = fmap (const ())
