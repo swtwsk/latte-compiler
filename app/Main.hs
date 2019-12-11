@@ -31,14 +31,9 @@ putStrV v s = when (v > 1) $ putStrLn s
 
 run :: Verbosity -> ParseFun (Program (Maybe (Int, Int))) -> String -> IO ()
 run v p s = let ts = myLLexer s in case p ts of
-    Bad s -> do
-        putStrLn "\nParse              Failed...\n"
-        putStrV v "Tokens:"
-        putStrV v $ show ts
-        putStrLn s
-        exitFailure
+    Bad s -> putStrLn s >> exitFailure
     Ok  tree -> case typeCheck tree of
-        BadChecked err -> print err >> exitFailure
+        err@(BadChecked _) -> print err >> exitFailure
         GoodChecked -> exitSuccess
 
 
