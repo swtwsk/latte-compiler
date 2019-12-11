@@ -38,7 +38,7 @@ run v p s = let ts = myLLexer s in case p ts of
         putStrLn s
         exitFailure
     Ok  tree -> case typeCheck tree of
-        BadChecked err -> putStrLn (show err) >> exitFailure
+        BadChecked err -> print err >> exitFailure
         GoodChecked -> exitSuccess
 
 

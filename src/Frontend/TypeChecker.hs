@@ -63,35 +63,94 @@ checkTopDef (FnDef pos t (Ident i) args block) = do
     newEnv <- asks (Map.union (Map.fromList argsWithT))
     bType <- either throwError return $ evalTCState (checkBlock block) newEnv
     case bType of
-        Nothing -> throwNoRet
-        Just t'' -> unless (t' == t'') $ throwError (typeErr t'')
+        NoReturn -> unless (t' == Void ()) throwNoRet
+        c@(ConstantReturn t'') -> unless (t' == t'') $ throwError (typeErr t'')
+        r@(Return t'') -> unless (t' == t'') $ throwError (typeErr t'')
     where
         t' = void t
         extractArg (Arg _ at (Ident i)) = (i, typeM $ void at)
         argsWithT = foldr ((:) . extractArg) [] args
-        throwNoRet = case t' of
-            Void _ -> return ()
-            _ -> throwError (pos, "No return inside function " ++ i)
+        throwNoRet = throwError (pos, "No return inside function " ++ i)
         typeErr t'' = (pos, "Expected function " ++ i ++ " to have a type " ++ show t' ++ ", but a return inside it returns type " ++ show t'')
         unique :: [String] -> TCReader ()
         unique = foldM_ (\acc el -> if el `Set.member` acc then throwError (pos, "Duplicated argument " ++ el ++ " in function " ++ i) else return $ el `Set.insert` acc) Set.empty
 
-checkBlock :: Block PosType -> TCState (Maybe TypeU)
+checkBlock :: Block PosType -> TCState (ReturnType TypeU)
 checkBlock (Block pos stmts) = do
     checked <- forM stmts checkStmt
-    let checked' = foldl' (\acc el -> case el of
-            Nothing -> acc
-            Just t -> case acc of
-                Right Nothing -> Right $ Just t
-                r@(Right (Just t')) -> if t == t' then r else Left "Wrong return types in block"
-                l@(Left _) -> l) (Right Nothing) checked
+    -- let checked' = foldl' (\acc el -> case el of
+    --         NoReturn -> acc
+    --         ConstantReturn t -> case acc of
+    --             Right NoReturn -> Right $ ConstantReturn t
+    --             r@(Right (ConstantReturn t')) -> if t == t' then r else Left "Wrong return types in block"
+    --             r@(Right (Return t')) -> if t == t' then Right (ConstantReturn t) else Left "Wrong return types in block"
+    --             l@(Left _) -> l
+    --         Return t -> case acc of
+    --             Right NoReturn -> Right $ Return t
+    --             r@(Right (ConstantReturn t')) -> if t == t' then r else Left "Wrong return types in block"
+    --             r@(Right (Return t')) -> if t == t' then r else Left "Wrong return types in block"
+    --             l@(Left _) -> l) (Right NoReturn) checked
+    let checked' = checkReturnTypes (Right NoReturn) (concat checked)
     either (\l -> throwError (pos, l)) return checked'
+    where
+        checkReturnTypes :: 
+            Either String (ReturnType TypeU) ->
+            [ReturnType TypeU] ->  
+            Either String (ReturnType TypeU)
+        checkReturnTypes l@(Left _) _ = l
+        checkReturnTypes rAcc [] = rAcc
+        checkReturnTypes rAcc (h:[])  = case (rAcc, h) of
+            (Right NoReturn, r) -> Right r
+            (cr@(Right (ConstantReturn _)), NoReturn) -> cr
+            (_, NoReturn) -> Right NoReturn
+            (Right r@(ConstantReturn t), ConstantReturn t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right r@(ConstantReturn t), Return t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right (Return t), r@(ConstantReturn t')) ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right r@(Return t), Return t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (a, b) -> Left $ show a ++ ";;" ++ show b
+        checkReturnTypes rAcc (h:t) = checkReturnTypes (case (rAcc, h) of
+            (Right NoReturn, r) -> Right r
+            (cr@(Right (ConstantReturn _)), NoReturn) -> cr
+            (r, NoReturn) -> r
+            (Right r@(ConstantReturn t), ConstantReturn t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right r@(ConstantReturn t), Return t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right (Return t), r@(ConstantReturn t')) ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (Right r@(Return t), Return t') ->
+                if t == t' then Right r else Left "Wrong return types in block"
+            (a, b) -> Left $ show a ++ ";;" ++ show b)
+            t
 
-checkStmt :: Stmt PosType -> TCState (Maybe TypeU)
-checkStmt (Empty _) = return Nothing
+data ReturnType a = NoReturn | ConstantReturn a | Return a
+
+instance Functor ReturnType where
+    fmap f rtype = case rtype of
+        NoReturn -> NoReturn
+        ConstantReturn t -> ConstantReturn (f t)
+        Return t -> Return (f t)
+
+instance Show a => Show (ReturnType a) where
+    show NoReturn = "NoRet"
+    show (ConstantReturn t) = "Const " ++ show t
+    show (Return t) = "Ret " ++ show t
+
+returnType :: b -> (a -> b) -> (a -> b) -> ReturnType a -> b
+returnType nf cf rf retType = case retType of
+    NoReturn -> nf
+    ConstantReturn r -> cf r
+    Return r -> rf r
+
+checkStmt :: Stmt PosType -> TCState [ReturnType TypeU]
+checkStmt (Empty _) = return . pure $ NoReturn
 checkStmt (BStmt _ block) = do
     env <- gets (Map.map (\v -> v {_outer = True}))
-    either throwError return $ evalTCState (checkBlock block) env
+    either throwError (return . pure) $ evalTCState (checkBlock block) env
 checkStmt (Decl pos t items) = do
     let foldF acc el = do
             i  <- extractIdent el
@@ -101,7 +160,7 @@ checkStmt (Decl pos t items) = do
     typedItems <- foldM foldF [] items
     let typedItemsMap = Map.fromList typedItems
     modify (Map.union typedItemsMap)
-    return Nothing
+    return [NoReturn]
     where
         t' = void t
         extractIdent :: Item PosType -> TCState String
@@ -114,28 +173,69 @@ checkStmt (Ass pos (Ident i) expr) = do
     iType <- lookupOrThrow i lookupErr
     exprType <- checkExpr expr
     when (exprType /= iType) $ throwError (err iType exprType)
-    return Nothing
+    return [NoReturn]
     where
         lookupErr = (pos, "Undeclared variable " ++ i)
         err it et = (pos, "Expected expression " ++ show expr ++ " to have type " ++ show it ++ ", but it has type " ++ show et)
 checkStmt (Incr pos (Ident i)) = checkIncrExpr i pos
 checkStmt (Decr pos (Ident i)) = checkIncrExpr i pos
-checkStmt (Ret _ expr) = Just <$> checkExpr expr
-checkStmt (VRet _) = return . Just $ Void ()
+checkStmt (Ret _ expr) = checkExpr expr >>= \t -> return [Return t]
+checkStmt (VRet _) = return . pure $ Return (Void ())
 checkStmt (Cond pos expr stmt) = do
     eType <- checkExpr expr
     when (eType /= Bool ()) $ throwError (pos, show expr ++ " has type " ++ show eType ++ ", when is expected to have " ++ show (Bool ()))
-    checkStmt stmt
+    retType <- checkStmt stmt
+    return . (++ [NoReturn]) $ case evaluateBool expr of
+        Nothing -> (returnType NoReturn Return Return) <$> retType
+        Just True -> 
+            (returnType NoReturn ConstantReturn ConstantReturn) <$> retType
+        Just False -> 
+            (returnType NoReturn Return Return) <$> retType
 checkStmt (CondElse pos expr s1 s2) = do
     eType <- checkExpr expr
     when (eType /= Bool ()) $ throwError (pos, show expr ++ " has type " ++ show eType ++ ", when is expected to have " ++ show (Bool ()))
-    checkStmt s1
-    checkStmt s2
+    rs1 <- checkStmt s1
+    rs2 <- checkStmt s2
+    throwIfDifferentTypes rs1 rs2 pos
+    case evaluateBool expr of
+        Nothing -> return $ (returnType NoReturn Return Return) <$> rs1
+        Just True -> return $
+            (returnType NoReturn ConstantReturn ConstantReturn) <$> rs1
+        Just False -> return $
+            (returnType NoReturn ConstantReturn ConstantReturn) <$> rs2
+    -- t <- case (rs1, rs2) of
+    --     (NoReturn, NoReturn) -> return NoReturn
+    --     (r@(ConstantReturn t1), NoReturn) -> return r
+    --     (r@(ConstantReturn t1), Return t2) -> if t1 == t2 then return r else throwError (pos, "Two conditions has different return types inside")
+    --     (r@(ConstantReturn t1), ConstantReturn t2) -> if t1 == t2 then return r else throwError (pos, "Two conditions has different return types inside")
+    --     (r@(Return t1), NoReturn) -> return r
+    --     (r@(Return t1), Return t2) -> if t1 == t2 then return r else throwError (pos, "Two conditions has different return types inside")
+    --     (Return t1, r@(ConstantReturn t2)) -> if t1 == t2 then return r else throwError (pos, "Two conditions has different return types inside")
+    
 checkStmt (While pos expr stmt) = do
     eType <- checkExpr expr
     when (eType /= Bool ()) $ throwError (pos, show expr ++ " has type " ++ show eType ++ ", when is expected to have " ++ show (Bool ()))
     checkStmt stmt
-checkStmt (SExp _ expr) = checkExpr expr >> return Nothing
+checkStmt (SExp _ expr) = checkExpr expr >> return [NoReturn]
+
+throwIfDifferentTypes :: 
+    [ReturnType TypeU] -> 
+    [ReturnType TypeU] ->
+    PosType ->
+    TCState ()
+throwIfDifferentTypes r1 r2 pos = do
+    unless (length r1 == length r2) $ throwError (pos, "Too many type returns")
+    forM_ (zip r1 r2) (flip throwIfDifferentTypes' pos)
+throwIfDifferentTypes' :: 
+    (ReturnType TypeU, ReturnType TypeU) ->
+    PosType ->
+    TCState ()
+throwIfDifferentTypes' r pos = case r of
+    (ConstantReturn t1, Return t2) ->  unless (t1 == t2) $ throwError (pos, "Two conditions has different return types inside")
+    (ConstantReturn t1, ConstantReturn t2) -> unless (t1 == t2) $ throwError (pos, "Two conditions has different return types inside")
+    (Return t1, Return t2) -> unless (t1 == t2) $ throwError (pos, "Two conditions has different return types inside")
+    (Return t1, ConstantReturn t2) -> unless (t1 == t2) $ throwError (pos, "Two conditions has different return types inside")
+    _ -> return ()
 
 checkExpr :: Expr PosType -> TCState TypeU
 checkExpr (EVar pos (Ident i)) =
@@ -195,11 +295,11 @@ checkExpr (ERel pos e1 op e2) = case op of
 checkExpr (EAnd pos e1 e2)   = checkBoolExpr e1 e2 pos
 checkExpr (EOr pos e1 e2)    = checkBoolExpr e1 e2 pos
 
-checkIncrExpr :: String -> PosType -> TCState (Maybe TypeU)
+checkIncrExpr :: String -> PosType -> TCState [ReturnType TypeU]
 checkIncrExpr i pos = do
     iType <- lookupOrThrow i lookupErr
     when (iType /= Int ()) $ throwError (pos, i ++ " has type " ++ show iType ++ ", when is expected to have " ++ show (Int ()))
-    return Nothing
+    return [NoReturn]
     where
         lookupErr = (pos, "Undeclared variable " ++ i)
 

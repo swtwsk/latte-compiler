@@ -48,6 +48,7 @@ evaluate (ERel _ e1 op e2) = do
         _ -> Nothing
 evaluate (EAnd _ e1 e2) = evaluateConnectors e1 e2 (&&)
 evaluate (EOr _ e1 e2) = evaluateConnectors e1 e2 (||)
+evaluate _ = Nothing
 
 evaluateConnectors :: Expr a -> Expr a -> (Bool -> Bool -> Bool) -> Maybe CVal
 evaluateConnectors e1 e2 fb = do
