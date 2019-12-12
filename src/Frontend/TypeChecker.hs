@@ -17,6 +17,8 @@ import AST.AbsLatte
 import Frontend.ConstantExpressions (evaluateBool)
 import Frontend.Exceptions
 import Frontend.ReturnType
+import qualified Frontend.AST as FAST
+import qualified Frontend.TranspileAST as TAST
 
 type TypeU = Type ()
 data TypeM = TypeM { _type :: TypeU, _outer :: Bool }
@@ -28,10 +30,11 @@ type StateErr = (PosType, FrontendException ())
 type TCState  = StateT StateMap (Except StateErr)
 type TCReader = ReaderT StateMap (Except StateErr)
 
-data TypeCheckResult = GoodChecked | BadChecked (PosType, FrontendException ())
+data TypeCheckResult = GoodChecked FAST.Program 
+                     | BadChecked (PosType, FrontendException ())
 
 instance Show TypeCheckResult where
-    show GoodChecked = "Good"
+    show (GoodChecked newAst) = show newAst
     show (BadChecked (m, err)) = case m of
         Nothing -> show err
         Just (line, col) -> show line ++ ":" ++ show col ++ ": " ++ show err
@@ -52,13 +55,13 @@ library = Map.fromList [ ("printInt", typeM $ fun voidT [int])
         voidT = Void ()
 
 typeCheck :: Program PosType -> TypeCheckResult
-typeCheck (Program _ topdefs) = case Map.lookup "main" fundefs of
+typeCheck p@(Program _ topdefs) = case Map.lookup "main" fundefs of
     Nothing -> BadChecked (Nothing, NoMain)
     Just mainType -> if _type mainType /= Fun () (Int ()) []
         then BadChecked (Nothing, NoMain)
-        else either bad (const GoodChecked) $
+        else either BadChecked (const good) $
             runExcept (runReaderT (forM_ topdefs checkTopDef) fundefs)
-    where bad = BadChecked
+    where good = GoodChecked $ TAST.transpile p
           fundefs = foldl' insertFunDef library (map void topdefs)
           insertFunDef acc (FnDef _ t (Ident i) args _) = 
             let argTs = foldr (\(Arg _ at _) -> (void at :)) [] args

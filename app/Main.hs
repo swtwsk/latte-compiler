@@ -37,7 +37,7 @@ run v p s = let ts = myLLexer s in case p ts of
         printTypeCheckResult typeChecked >>
         case typeChecked of
             (BadChecked _) -> exitFailure
-            GoodChecked -> exitSuccess
+            (GoodChecked _) -> exitSuccess
 
 showTree :: (Show a, Print a) => Int -> a -> IO ()
 showTree v tree
@@ -57,7 +57,7 @@ usage = do
     exitFailure
 
 printTypeCheckResult :: TypeCheckResult -> IO ()
-printTypeCheckResult GoodChecked = putStrLn "OK"
+printTypeCheckResult (GoodChecked pAst) = putStrLn "OK" >> putStr (show pAst)
 printTypeCheckResult (BadChecked (m, err)) = setSGR [Reset] << case m of
         Nothing -> do
             setSGR [SetColor Foreground Vivid Red]
