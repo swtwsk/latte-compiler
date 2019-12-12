@@ -24,6 +24,7 @@ dependencies:
 - mtl
 - array
 - containers
+- ansi-terminal
 
 library:
   source-dirs: src
