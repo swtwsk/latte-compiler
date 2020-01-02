@@ -14,6 +14,7 @@ import AST.PrintLatte
 import AST.AbsLatte
 
 import Frontend.TypeChecker
+import Backend.Compiler
 
 import AST.ErrM
 
@@ -33,6 +34,7 @@ run :: Verbosity -> ParseFun (Program (Maybe (Int, Int))) -> String -> IO ()
 run v p s = let ts = myLLexer s in case p ts of
     Bad s -> putStrLn s >> exitFailure
     Ok  tree ->
+        -- (showTree v tree) >>
         let typeChecked = typeCheck tree in
         printTypeCheckResult typeChecked >>
         case typeChecked of
@@ -57,7 +59,10 @@ usage = do
     exitFailure
 
 printTypeCheckResult :: TypeCheckResult -> IO ()
-printTypeCheckResult (GoodChecked pAst) = putStrLn "OK" >> putStr (show pAst)
+printTypeCheckResult (GoodChecked pAst) = do
+    putStrLn "OK"
+    let compiled = compile pAst
+    putStr compiled -- . unlines $ show <$> gen
 printTypeCheckResult (BadChecked (m, err)) = setSGR [Reset] << case m of
         Nothing -> do
             setSGR [SetColor Foreground Vivid Red]

@@ -25,6 +25,7 @@ dependencies:
 - array
 - containers
 - ansi-terminal
+- dlist
 
 library:
   source-dirs: src

@@ -14,7 +14,7 @@ import Data.List (foldl')
 import Data.Bifunctor (bimap)
 
 import AST.AbsLatte
-import Frontend.ConstantExpressions (evaluateBool)
+import Utils.ConstantExpressions (evaluateBool)
 import Frontend.Exceptions
 import Frontend.ReturnType
 import qualified Frontend.AST as FAST
@@ -169,19 +169,7 @@ checkStmt (Incr pos (Ident i)) = checkIncrExpr i pos
 checkStmt (Decr pos (Ident i)) = checkIncrExpr i pos
 checkStmt (Ret _ expr) = checkExpr expr >>= \t -> return [Return t]
 checkStmt (VRet _) = return . pure $ Return (Void ())
-checkStmt (Cond pos expr stmt) = do
-    eType <- checkExpr expr
-    when (eType /= Bool ()) $ 
-        throwError (pos, ExprType { _expr = Right (void expr)
-                                  , _expectedType = Bool ()
-                                  , _gotType = eType })
-    retType <- checkStmt stmt
-    return . (++ [NoReturn]) $ case evaluateBool expr of
-        Nothing -> returnType NoReturn Return Return <$> retType
-        Just True -> 
-            returnType NoReturn ConstantReturn ConstantReturn <$> retType
-        Just False -> 
-            returnType NoReturn Return Return <$> retType
+checkStmt (Cond pos expr stmt) = checkOneBranchCond pos expr stmt
 checkStmt (CondElse pos expr s1 s2) = do
     eType <- checkExpr expr
     when (eType /= Bool ()) $
@@ -196,14 +184,22 @@ checkStmt (CondElse pos expr s1 s2) = do
             returnType NoReturn ConstantReturn ConstantReturn <$> rs1
         Just False -> return $
             returnType NoReturn ConstantReturn ConstantReturn <$> rs2
-checkStmt (While pos expr stmt) = do
+checkStmt (While pos expr stmt) = checkOneBranchCond pos expr stmt
+checkStmt (SExp _ expr) = checkExpr expr >> return [NoReturn]
+
+checkOneBranchCond pos expr stmt = do
     eType <- checkExpr expr
     when (eType /= Bool ()) $ 
         throwError (pos, ExprType { _expr = Right (void expr)
                                   , _expectedType = Bool ()
                                   , _gotType = eType })
-    checkStmt stmt
-checkStmt (SExp _ expr) = checkExpr expr >> return [NoReturn]
+    retType <- checkStmt stmt
+    return . (++ [NoReturn]) $ case evaluateBool expr of
+        Nothing -> returnType NoReturn Return Return <$> retType
+        Just True -> 
+            returnType NoReturn ConstantReturn ConstantReturn <$> retType
+        Just False -> 
+            returnType NoReturn Return Return <$> retType
 
 checkExpr :: Expr PosType -> TCState TypeU
 checkExpr (EVar pos (Ident i)) = lookupOrThrow i (pos, UndeclaredVar i)
