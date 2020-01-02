@@ -15,42 +15,49 @@ optimizeProg (Program topdefs) = Program $ fmap optimizeTopDef topdefs
 
 optimizeTopDef :: TopDef -> TopDef
 optimizeTopDef (FnDef t fname args block) =
-    FnDef t fname args $ maybe (Block []) id (optimizeBlock isVoid block)
+    FnDef t fname args $ case optimizeBlock block of
+        Nothing -> Block [VRet]
+        Just b@(Block stmts) ->
+            if isVoid then (Block $ attachAtEnd stmts) else b
     where
         isVoid = t == TVoid
+        attachAtEnd :: [Stmt] -> [Stmt]
+        attachAtEnd [h]   = if h == VRet then [h] else [h, VRet]
+        attachAtEnd (h:t) = h : (attachAtEnd t)
+        attachAtEnd []    = []
 
-optimizeBlock :: Bool -> Block -> Maybe Block
-optimizeBlock isVoid (Block stmts) =
-    case catMaybes . fmap (optimizeStmt isVoid) $ stmts of
+optimizeBlock :: Block -> Maybe Block
+optimizeBlock (Block stmts) =
+    case catMaybes . fmap optimizeStmt $ stmts of
         [] -> Nothing
         l  -> Just $ Block l
 
-optimizeStmt :: Bool -> Stmt -> Maybe Stmt
-optimizeStmt isVoid stmt = case stmt of
-    BStmt block -> optimizeBlock isVoid block >>= pure . BStmt
+optimizeStmt :: Stmt -> Maybe Stmt
+optimizeStmt stmt = case stmt of
+    BStmt block -> optimizeBlock block >>= pure . BStmt
     Ass x expr -> pure $ Ass x (exprToConstLit expr)
     Ret expr -> pure $ Ret (exprToConstLit expr)
-    Cond expr stmt -> optimizeOneBranchCond isVoid expr stmt
-    While expr stmt -> optimizeOneBranchCond isVoid expr stmt
+    Cond expr stmt -> optimizeOneBranchCond expr stmt
+    While expr stmt -> optimizeOneBranchCond expr stmt
     CondElse expr st1 st2 -> case evaluateBool expr of
         Nothing -> do
             let e = eitherToExpr . optimizeExpr $ expr
-            s1 <- optimizeStmt isVoid st1
-            s2 <- optimizeStmt isVoid st2
+            s1 <- optimizeStmt st1
+            s2 <- optimizeStmt st2
             pure $ CondElse e s1 s2
         Just b  -> 
-            if b then optimizeStmt isVoid st1 else optimizeStmt isVoid st2
+            if b then optimizeStmt st1 else optimizeStmt st2
     SExp expr -> pure . SExp . eitherToExpr . optimizeExpr $ expr
     -- Empty, Decl, Incr, Decr, VRet
     x -> pure x
 
-optimizeOneBranchCond :: Bool -> Expr -> Stmt -> Maybe Stmt
-optimizeOneBranchCond isVoid expr stmt = case evaluateBool expr of
+optimizeOneBranchCond :: Expr -> Stmt -> Maybe Stmt
+optimizeOneBranchCond expr stmt = case evaluateBool expr of
     Nothing -> do
         let e = eitherToExpr $ optimizeExpr expr
-        s <- optimizeStmt isVoid stmt
+        s <- optimizeStmt stmt
         pure $ Cond e s
-    Just b  -> if b then optimizeStmt isVoid stmt else Nothing
+    Just b  -> if b then optimizeStmt stmt else Nothing
 
 -- TODO: OPTIMIZE ADD/MUL AS IT IS COMMUTATIVE
 optimizeExpr :: Expr -> Either Expr CVal
