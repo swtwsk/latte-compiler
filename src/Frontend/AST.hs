@@ -12,6 +12,8 @@ module Frontend.AST (
     RelOp(..)
 ) where
 
+import Utils.StringUtils
+
 data Program = Program [TopDef]
     deriving (Eq, Ord, Read)
 
@@ -148,11 +150,3 @@ instance Show RelOp where
     show LE  = "<="
     show GE  = ">="
     show NE  = "!="
-
-safeShowList :: Show a => [a] -> String
-safeShowList l = case l of
-    _:_ -> foldr1 (\el -> ((el ++ ", ") ++)) (fmap show l)
-    _ -> ""
-
-indent :: String -> String
-indent s = "    " ++ s

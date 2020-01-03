@@ -35,8 +35,8 @@ processProg :: Program -> GenState ()
 processProg (Program topdefs) = forM_ topdefs processTopDef
 
 processTopDef :: TopDef -> GenState ()
-processTopDef (FnDef _ name _ block) = do
-    output (Label name)
+processTopDef (FnDef t name args block) = do
+    output (FunHead t name args)
     processBlock block
 
 processArg :: Arg -> GenState ()
@@ -51,7 +51,7 @@ processStmt (BStmt block) = processBlock block
 processStmt (Decl _ items) = forM_ items processItem
 processStmt (Ass s expr) = do
     tmp <- processExpr expr
-    output $ Assign Nothing tmp (Var s)
+    output $ Assign Nothing (Var s) tmp
 processStmt (Incr s) = output $ Binary Nothing (Var s) (Var s) BPlus (CInt 1)
 processStmt (Decr s) = output $ Binary Nothing (Var s) (Var s) BMinus (CInt 1)
 processStmt (Ret expr) = do
@@ -59,7 +59,7 @@ processStmt (Ret expr) = do
     output $ Return Nothing (Just tmp)
 processStmt (VRet) = output $ Return Nothing Nothing
 processStmt (Cond expr stmt) = do
-    tmp <- processExpr (Not expr)  -- optimalization ?
+    tmp <- processExpr expr
     l1  <- nextLabel
     l2  <- nextLabel
     output $ IfJmp Nothing tmp l1 l2
@@ -72,8 +72,8 @@ processStmt (CondElse expr s1 s2) = do
     output $ IfJmp Nothing tmp l1 l2
     output (Label l1) >> processStmt s1
     output (Label l2) >> processStmt s2
-    l3  <- nextLabel
-    output $ Label l3  -- I think, again?
+    -- l3  <- nextLabel
+    -- output $ Label l3  -- I think, again?
 processStmt (While expr stmt) = do
     l1   <- nextLabel
     l2   <- nextLabel
@@ -88,20 +88,9 @@ processStmt (SExp expr) = processExpr expr >> return ()  -- ?
 
 processItem :: Item -> GenState ()
 processItem (NoInit s) = return ()
-    -- st <- get
-    -- let vars = _vars st
-    -- put $ StateEnv { _vars = Map.insert s Nothing vars }
 processItem (Init s expr) = do
     tmp <- processExpr expr
-    output $ Assign Nothing tmp (Var s)
-    -- state <- get
-    -- let vars = _vars state
-    -- case Map.lookup s vars of
-    --     Nothing -> do
-    --         i <- nextIndex
-    --         put $ state { _vars = Map.insert s i vars }
-    --     Just _ -> return ()
-    -- output (UStore Nothing v (Var s))
+    output $ Assign Nothing (Var s) tmp
 
 processType :: Type -> GenState ()
 processType = undefined
@@ -180,7 +169,7 @@ nextVar = do
     state <- get
     let (x, xs) = fromInfiniteList $ _varSupply state
     put $ state { _varSupply = xs }
-    return $ Var x
+    return . Var $ "%t_" ++ x
 
 -- new GHC version fix, courtesy of haskell-chart repository
 -- https://github.com/timbod7/haskell-chart/pull/197

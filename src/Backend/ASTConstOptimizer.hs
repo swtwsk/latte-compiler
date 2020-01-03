@@ -37,8 +37,8 @@ optimizeStmt stmt = case stmt of
     BStmt block -> optimizeBlock block >>= pure . BStmt
     Ass x expr -> pure $ Ass x (exprToConstLit expr)
     Ret expr -> pure $ Ret (exprToConstLit expr)
-    Cond expr stmt -> optimizeOneBranchCond expr stmt
-    While expr stmt -> optimizeOneBranchCond expr stmt
+    Cond expr stmt -> optimizeOneBranchCond expr stmt Cond
+    While expr stmt -> optimizeOneBranchCond expr stmt While
     CondElse expr st1 st2 -> case evaluateBool expr of
         Nothing -> do
             let e = eitherToExpr . optimizeExpr $ expr
@@ -51,12 +51,12 @@ optimizeStmt stmt = case stmt of
     -- Empty, Decl, Incr, Decr, VRet
     x -> pure x
 
-optimizeOneBranchCond :: Expr -> Stmt -> Maybe Stmt
-optimizeOneBranchCond expr stmt = case evaluateBool expr of
+optimizeOneBranchCond :: Expr -> Stmt -> (Expr -> Stmt -> Stmt) -> Maybe Stmt
+optimizeOneBranchCond expr stmt ctr = case evaluateBool expr of
     Nothing -> do
         let e = eitherToExpr $ optimizeExpr expr
         s <- optimizeStmt stmt
-        pure $ Cond e s
+        pure $ ctr e s
     Just b  -> if b then optimizeStmt stmt else Nothing
 
 -- TODO: OPTIMIZE ADD/MUL AS IT IS COMMUTATIVE

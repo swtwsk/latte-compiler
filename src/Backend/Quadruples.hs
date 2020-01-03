@@ -6,11 +6,15 @@ module Backend.Quadruples (
     -- OpRel(..)
 ) where
 
+import Frontend.AST (Type(..), Arg(..))
+import Utils.StringUtils (safeShowList)
+
 data Var = Var String | CInt Integer | CBool Bool | CString String
 type Label = String
 
 data Quadruple = Binary (Maybe Label) Var Var OpBin Var
                | Unary (Maybe Label) Var OpUn Var
+               | FunHead Type Label [Arg]
             --     ULoad (Maybe Label) Var Var
             --     UStore (Maybe Label) Var Var
                | Label Label  -- for now
@@ -44,6 +48,8 @@ instance Show Quadruple where
         show lvar ++ " := " ++ show a ++ " " ++ show op ++ " " ++ show b
     show (Unary label lvar op b) = mShowLabel label ++
         show lvar ++ " := " ++ show op ++ " " ++ show b
+    show (FunHead t fname list) = "define " ++ show t ++
+        " " ++ fname ++ "(" ++ (safeShowList list) ++ "):"
     -- show (ULoad label lvar rvar) = mShowLabel label ++
     --     show lvar ++ " := load " ++ show rvar
     -- show (UStore label vvar svar) = mShowLabel label ++
@@ -66,7 +72,7 @@ instance Show Var where
     show (Var s) = s
     show (CInt i) = show i
     show (CBool b) = show b
-    show (CString s) = "\"" ++ s ++ "\""
+    show (CString s) = s
 
 instance Show OpBin where
     show op = case op of
