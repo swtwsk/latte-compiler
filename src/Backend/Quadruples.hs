@@ -37,7 +37,7 @@ instance Show Quadruple where
         show lvar ++ " := " ++ show a ++ " " ++ show op ++ " " ++ show b
     show (Unary lvar op b) = show lvar ++ " := " ++ show op ++ " " ++ show b
     show (FunHead t fname list) = "define " ++ show t ++
-        " " ++ fname ++ "(" ++ (safeShowList list) ++ "):"
+        " " ++ fname ++ "(" ++ safeShowList list ++ "):"
     show (Label label) = showLabel label
     show (Assign lvar rvar) = show lvar ++ " := " ++ show rvar
     show (Goto glabel) = "goto " ++ glabel

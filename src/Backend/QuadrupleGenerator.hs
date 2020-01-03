@@ -50,7 +50,7 @@ processArg = undefined
 processBlock :: Block -> GenState Bool
 processBlock (Block stmts) = do
     processed <- forM stmts processStmt
-    return $ any id processed
+    return $ or processed
 
 processStmt :: Stmt -> GenState Bool
 processStmt Empty = return False
@@ -69,7 +69,7 @@ processStmt (Decr s) = do
 processStmt (Ret expr) = do
     tmp <- processExpr expr
     output (Return $ Just tmp) >> return True
-processStmt (VRet) = output (Return Nothing) >> return True
+processStmt VRet = output (Return Nothing) >> return True
 processStmt (Cond expr stmt) = do
     tmp <- processExpr expr
     l1  <- nextLabel
@@ -127,13 +127,13 @@ processExpr (EApp fname exprs) = do
     elist' <- forM elist constToTemp
     forM_ elist' (output . Param)
     t <- nextVar
-    ftype <- asks $ (flip (Map.!) fname) . _funs
+    ftype <- asks $ flip (Map.!) fname . _funs
     output $ (if ftype == TVoid then Call else FCall t) fname (length elist)
     return t
     where
         constToTemp :: Var -> GenState Var
-        constToTemp v@(Var {}) = return v
-        constToTemp t@(Temp {}) = return t
+        constToTemp v@Var  {} = return v
+        constToTemp t@Temp {} = return t
         constToTemp c = do
             tmp <- nextVar
             output (Assign tmp c)

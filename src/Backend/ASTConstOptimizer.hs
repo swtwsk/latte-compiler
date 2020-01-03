@@ -8,7 +8,7 @@ import Frontend.AST
 import Utils.ConstantExpressions
 
 optimize :: Program -> Program
-optimize p = optimizeProg p
+optimize = optimizeProg
 
 optimizeProg :: Program -> Program
 optimizeProg (Program topdefs) = Program $ fmap optimizeTopDef topdefs
@@ -18,12 +18,12 @@ optimizeTopDef (FnDef t fname args block) =
     FnDef t fname args $ case optimizeBlock block of
         Nothing -> Block [VRet]
         Just b@(Block stmts) ->
-            if isVoid then (Block $ attachAtEnd stmts) else b
+            if isVoid then Block $ attachAtEnd stmts else b
     where
         isVoid = t == TVoid
         attachAtEnd :: [Stmt] -> [Stmt]
         attachAtEnd [h]   = if h == VRet then [h] else [h, VRet]
-        attachAtEnd (h:t) = h : (attachAtEnd t)
+        attachAtEnd (h:t) = h : attachAtEnd t
         attachAtEnd []    = []
 
 optimizeBlock :: Block -> Maybe Block
@@ -139,6 +139,6 @@ constToLit (CBool b) = if b then ELitTrue else ELitFalse
 
 catMaybes :: [Maybe a] -> [a]
 catMaybes (h:t) = case h of
-    Just x  -> x : (catMaybes t)
+    Just x  -> x : catMaybes t
     Nothing -> catMaybes t
 catMaybes [] = []
