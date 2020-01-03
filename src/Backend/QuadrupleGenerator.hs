@@ -8,28 +8,37 @@ import Control.Monad.RWS
 import Control.Monad.Identity
 
 import Data.DList (DList, singleton, toList)
+import Data.List (foldl')
 import qualified Data.Map as Map
 
 -- import Backend.VarSupply
 import Frontend.AST
 import Backend.Quadruples
 
-type ReaderEnv = Map.Map String () -- nie wiem xD
-data StateEnv  = StateEnv { _varSupply :: [String]
-                          , _nextLabel :: Int }
+data ReaderEnv = ReaderEnv { _funs      :: Map.Map String Type }
+data StateEnv  = StateEnv  { _varSupply :: [String]
+                           , _nextLabel :: Int }
 type WrtList   = DList Quadruple
 
 type GenState = RWS ReaderEnv WrtList StateEnv -- VarSupply -- Identity
+
+library :: Map.Map String Type
+library = Map.fromList [ ("printInt", TVoid)
+                       , ("printString", TVoid)
+                       , ("error", TVoid) 
+                       , ("readInt", TInt)
+                       , ("readString", TStr) ]
 
 generate :: Program -> [Quadruple]
 generate prog@(Program topdefs) = toList wrtList
     where
         (_, wrtList) = evalRWS (processProg prog) initReader initState
-        -- (_, wrtList) = flip evalVarSupply supp $ 
-        --     evalRWST (processProg prog) initReader initState
-        initReader = Map.empty
+
+        initReader = ReaderEnv { _funs = funcMap `Map.union` library }
         initState  = StateEnv { _varSupply = supp, _nextLabel = 0 }
+
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
+        funcMap = Map.fromList $ map (\(FnDef v k _ _) -> (k, v)) topdefs
 
 processProg :: Program -> GenState ()
 processProg (Program topdefs) = forM_ topdefs processTopDef
@@ -38,26 +47,34 @@ processTopDef :: TopDef -> GenState ()
 processTopDef (FnDef t name args block) = do
     output (FunHead t name args)
     processBlock block
+    return ()
 
 processArg :: Arg -> GenState ()
 processArg = undefined
 
-processBlock :: Block -> GenState ()
-processBlock (Block stmts) = forM_ stmts processStmt
+processBlock :: Block -> GenState Bool
+processBlock (Block stmts) = do
+    processed <- forM stmts processStmt
+    return $ any id processed
 
-processStmt :: Stmt -> GenState ()
-processStmt Empty = return ()
+processStmt :: Stmt -> GenState Bool
+processStmt Empty = return False
 processStmt (BStmt block) = processBlock block
-processStmt (Decl _ items) = forM_ items processItem
+processStmt (Decl _ items) = forM_ items processItem >> return False
 processStmt (Ass s expr) = do
     tmp <- processExpr expr
     output $ Assign Nothing (Var s) tmp
-processStmt (Incr s) = output $ Binary Nothing (Var s) (Var s) BPlus (CInt 1)
-processStmt (Decr s) = output $ Binary Nothing (Var s) (Var s) BMinus (CInt 1)
+    return False
+processStmt (Incr s) = do
+    output $ Binary Nothing (Var s) (Var s) BPlus (CInt 1)
+    return False
+processStmt (Decr s) = do
+    output $ Binary Nothing (Var s) (Var s) BMinus (CInt 1)
+    return False
 processStmt (Ret expr) = do
     tmp <- processExpr expr
-    output $ Return Nothing (Just tmp)
-processStmt (VRet) = output $ Return Nothing Nothing
+    output (Return Nothing (Just tmp)) >> return True
+processStmt (VRet) = output (Return Nothing Nothing) >> return True
 processStmt (Cond expr stmt) = do
     tmp <- processExpr expr
     l1  <- nextLabel
@@ -65,15 +82,22 @@ processStmt (Cond expr stmt) = do
     output $ IfJmp Nothing tmp l1 l2
     output (Label l1) >> processStmt stmt
     output $ Label l2  -- i think?
+    return False
 processStmt (CondElse expr s1 s2) = do
     tmp <- processExpr expr
     l1  <- nextLabel
     l2  <- nextLabel
+    l3  <- nextLabel
     output $ IfJmp Nothing tmp l1 l2
-    output (Label l1) >> processStmt s1
-    output (Label l2) >> processStmt s2
-    -- l3  <- nextLabel
-    -- output $ Label l3  -- I think, again?
+    output (Label l1)
+    r1  <- processStmt s1
+    unless r1 $ output (Goto Nothing l3)
+    output (Label l2)
+    r2 <- processStmt s2
+    unless r2 $ output (Goto Nothing l3)
+    let bothReturns = r1 && r2
+    unless bothReturns $ output (Label l3)  -- I think, again?
+    return bothReturns
 processStmt (While expr stmt) = do
     l1   <- nextLabel
     l2   <- nextLabel
@@ -84,7 +108,8 @@ processStmt (While expr stmt) = do
     tmp <- processExpr expr
     output $ IfJmp Nothing tmp l1 lEnd
     output $ Label lEnd
-processStmt (SExp expr) = processExpr expr >> return ()  -- ?
+    return False
+processStmt (SExp expr) = processExpr expr >> return False  -- ?
 
 processItem :: Item -> GenState ()
 processItem (NoInit s) = return ()
@@ -102,10 +127,19 @@ processExpr ELitTrue = return $ CBool True
 processExpr ELitFalse = return $ CBool False
 processExpr (EApp fname exprs) = do
     elist <- forM exprs processExpr
-    forM_ elist (output . (Param Nothing))
+    forM_ elist outputParams
     t <- nextVar
-    output $ FCall Nothing t fname (length elist)
+    ftype <- asks $ (flip (Map.!) fname) . _funs
+    output $ (if ftype == TVoid then Call Nothing else FCall Nothing t) 
+        fname (length elist)
     return t
+    where
+        outputParams :: Var -> GenState ()
+        outputParams v@(Var {}) = output (Param Nothing v)
+        outputParams c = do
+            tmp <- nextVar
+            output (Assign Nothing tmp c)
+            output (Param Nothing tmp)
 processExpr (EString s) = return $ CString s
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
@@ -177,20 +211,7 @@ fromInfiniteList :: [a] -> (a, [a])
 fromInfiniteList []     = error "VarSupply: empty list"
 fromInfiniteList (x:xs) = (x, xs)
 
--- nextIndex :: GenState Int
--- nextIndex = do
---     state <- get
---     let ind = _next state
---     put $ state { _next = ind + 1 }
---     return ind
-
 insertIfNot :: (Ord k) => k -> v -> Map.Map k v -> Map.Map k v
 insertIfNot key value map = case Map.lookup key map of
     Nothing -> Map.insert key value map
     Just _  -> map
-
--- outputIndented :: String -> GenState ()
--- outputIndented = tell . singleton . indent
-
--- indent :: String -> String
--- indent s = "    " ++ s
