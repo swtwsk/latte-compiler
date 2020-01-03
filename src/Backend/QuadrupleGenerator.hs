@@ -1,9 +1,5 @@
 module Backend.QuadrupleGenerator (generate) where
 
--- import Control.Monad.State
--- import Control.Monad.Reader
--- import Control.Monad.Writer
--- import Control.Monad.Except
 import Control.Monad.RWS
 import Control.Monad.Identity
 
@@ -11,7 +7,6 @@ import Data.DList (DList, singleton, toList)
 import Data.List (foldl')
 import qualified Data.Map as Map
 
--- import Backend.VarSupply
 import Frontend.AST
 import Backend.Quadruples
 
@@ -20,7 +15,7 @@ data StateEnv  = StateEnv  { _varSupply :: [String]
                            , _nextLabel :: Int }
 type WrtList   = DList Quadruple
 
-type GenState = RWS ReaderEnv WrtList StateEnv -- VarSupply -- Identity
+type GenState = RWS ReaderEnv WrtList StateEnv
 
 library :: Map.Map String Type
 library = Map.fromList [ ("printInt", TVoid)
@@ -60,26 +55,26 @@ processBlock (Block stmts) = do
 processStmt :: Stmt -> GenState Bool
 processStmt Empty = return False
 processStmt (BStmt block) = processBlock block
-processStmt (Decl _ items) = forM_ items processItem >> return False
+processStmt (Decl t items) = forM_ items (processItem t) >> return False
 processStmt (Ass s expr) = do
     tmp <- processExpr expr
-    output $ Assign Nothing (Var s) tmp
+    output $ Assign (Var s) tmp
     return False
 processStmt (Incr s) = do
-    output $ Binary Nothing (Var s) (Var s) BPlus (CInt 1)
+    output $ Binary (Var s) (Var s) BPlus (CInt 1)
     return False
 processStmt (Decr s) = do
-    output $ Binary Nothing (Var s) (Var s) BMinus (CInt 1)
+    output $ Binary (Var s) (Var s) BMinus (CInt 1)
     return False
 processStmt (Ret expr) = do
     tmp <- processExpr expr
-    output (Return Nothing (Just tmp)) >> return True
-processStmt (VRet) = output (Return Nothing Nothing) >> return True
+    output (Return $ Just tmp) >> return True
+processStmt (VRet) = output (Return Nothing) >> return True
 processStmt (Cond expr stmt) = do
     tmp <- processExpr expr
     l1  <- nextLabel
     l2  <- nextLabel
-    output $ IfJmp Nothing tmp l1 l2
+    output $ IfJmp tmp l1 l2
     output (Label l1) >> processStmt stmt
     output $ Label l2  -- i think?
     return False
@@ -88,13 +83,13 @@ processStmt (CondElse expr s1 s2) = do
     l1  <- nextLabel
     l2  <- nextLabel
     l3  <- nextLabel
-    output $ IfJmp Nothing tmp l1 l2
+    output $ IfJmp tmp l1 l2
     output (Label l1)
     r1  <- processStmt s1
-    unless r1 $ output (Goto Nothing l3)
+    unless r1 $ output (Goto l3)
     output (Label l2)
     r2 <- processStmt s2
-    unless r2 $ output (Goto Nothing l3)
+    unless r2 $ output (Goto l3)
     let bothReturns = r1 && r2
     unless bothReturns $ output (Label l3)  -- I think, again?
     return bothReturns
@@ -102,23 +97,25 @@ processStmt (While expr stmt) = do
     l1   <- nextLabel
     l2   <- nextLabel
     lEnd <- nextLabel
-    output $ Goto Nothing l2
+    output $ Goto l2
     output (Label l1) >> processStmt stmt
     output (Label l2)
     tmp <- processExpr expr
-    output $ IfJmp Nothing tmp l1 lEnd
+    output $ IfJmp tmp l1 lEnd
     output $ Label lEnd
     return False
 processStmt (SExp expr) = processExpr expr >> return False  -- ?
 
-processItem :: Item -> GenState ()
-processItem (NoInit s) = return ()
-processItem (Init s expr) = do
+processItem :: Type -> Item -> GenState ()
+processItem t (NoInit s) = output $ Assign (Var s) defVal
+    where
+        defVal = case t of
+            TInt -> CInt 0
+            TStr -> CString ""
+            TBool -> CBool False
+processItem _ (Init s expr) = do
     tmp <- processExpr expr
-    output $ Assign Nothing (Var s) tmp
-
-processType :: Type -> GenState ()
-processType = undefined
+    output $ Assign (Var s) tmp
 
 processExpr :: Expr -> GenState Var
 processExpr (EVar i) = return $ Var i
@@ -127,19 +124,20 @@ processExpr ELitTrue = return $ CBool True
 processExpr ELitFalse = return $ CBool False
 processExpr (EApp fname exprs) = do
     elist <- forM exprs processExpr
-    forM_ elist outputParams
+    elist' <- forM elist constToTemp
+    forM_ elist' (output . Param)
     t <- nextVar
     ftype <- asks $ (flip (Map.!) fname) . _funs
-    output $ (if ftype == TVoid then Call Nothing else FCall Nothing t) 
-        fname (length elist)
+    output $ (if ftype == TVoid then Call else FCall t) fname (length elist)
     return t
     where
-        outputParams :: Var -> GenState ()
-        outputParams v@(Var {}) = output (Param Nothing v)
-        outputParams c = do
+        constToTemp :: Var -> GenState Var
+        constToTemp v@(Var {}) = return v
+        constToTemp t@(Temp {}) = return t
+        constToTemp c = do
             tmp <- nextVar
-            output (Assign Nothing tmp c)
-            output (Param Nothing tmp)
+            output (Assign tmp c)
+            return tmp
 processExpr (EString s) = return $ CString s
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
@@ -167,7 +165,7 @@ processUnExpr :: Expr -> OpUn -> GenState Var
 processUnExpr e op = do
     a <- processExpr e
     t <- nextVar
-    output $ Unary Nothing t op a
+    output $ Unary t op a
     return t
 
 processBinExpr :: Expr -> Expr -> OpBin -> GenState Var
@@ -175,17 +173,8 @@ processBinExpr e1 e2 op = do
     a1 <- processExpr e1
     a2 <- processExpr e2
     t  <- nextVar
-    output $ Binary Nothing t a1 op a2
+    output $ Binary t a1 op a2
     return t
-
-processAddOp :: AddOp -> GenState ()
-processAddOp = undefined
-
-processMulOp :: MulOp -> GenState ()
-processMulOp = undefined
-
-processRelOp :: RelOp -> GenState ()
-processRelOp = undefined
 
 -- helper functions
 output :: Quadruple -> GenState ()
@@ -203,7 +192,7 @@ nextVar = do
     state <- get
     let (x, xs) = fromInfiniteList $ _varSupply state
     put $ state { _varSupply = xs }
-    return . Var $ "%t_" ++ x
+    return $ Temp x
 
 -- new GHC version fix, courtesy of haskell-chart repository
 -- https://github.com/timbod7/haskell-chart/pull/197
