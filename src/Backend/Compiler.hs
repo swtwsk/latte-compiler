@@ -8,8 +8,10 @@ import qualified Backend.X86.AsmGenerator as Asm
 import qualified Backend.FuncDef as FuncDef
 import Utils.StringUtils
 
-compile :: Program -> String
-compile = unlines . Asm.compile . FuncDef.toFuncDefs . QuadGen.generate . optimize
+compile :: Bool -> Program -> String
+compile showQuads = unlines . 
+    (if showQuads then (show <$>) else Asm.compile . FuncDef.toFuncDefs) .
+    QuadGen.generate . optimize
     where
         showFun (h1:(f@Quads.FunHead {}):t) =
             [showIndented h1, "", showIndented f] ++ showFun t
