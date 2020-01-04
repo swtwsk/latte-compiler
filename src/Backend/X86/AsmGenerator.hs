@@ -82,11 +82,11 @@ attachEnd s = ("." ++ s ++ "_end")
 
 printQuadruple :: Quadruple -> GenerateM ()
 printQuadruple (Binary lvar a op b) = do
-    aAddr <- getAddrOrValue a False
+    aAddr <- getAddrOrValue a
     outputIndented $ "mov eax, " ++ aAddr
-    bAddr <- getAddrOrValue b True
+    bAddr <- getAddrOrValue b
     outputIndented $ op' ++ " eax, " ++ bAddr
-    lAddr <- getAddrOrValue lvar False
+    lAddr <- getAddrOrValue lvar
     outputIndented $ "mov " ++ lAddr ++ ", eax"
     where
         op' = case op of
@@ -104,10 +104,10 @@ printQuadruple (Binary lvar a op b) = do
             BEQU -> undefined
             BNE -> undefined
 printQuadruple (Unary lvar op a) = do
-    aAddr <- getAddrOrValue a False
+    aAddr <- getAddrOrValue a
     outputIndented $ "mov eax, " ++ aAddr
     outputIndented $ op' ++ " eax"
-    lAddr <- getAddrOrValue lvar False
+    lAddr <- getAddrOrValue lvar
     outputIndented $ "mov " ++ lAddr ++ ", eax"
     where
         op' = case op of
@@ -115,12 +115,12 @@ printQuadruple (Unary lvar op a) = do
             UNot   -> "not"
 printQuadruple (Label label) = output $ label ++ ":"
 printQuadruple (Assign lvar rvar) = do
-    rAddr <- getAddrOrValue rvar True
-    lAddr <- getAddrOrValue lvar False
+    rAddr <- getAddrOrValue rvar
+    lAddr <- getAddrOrValue lvar
     outputIndented $ "mov " ++ lAddr ++ ", " ++ rAddr
 printQuadruple (Goto glabel) = outputIndented $ "jmp " ++ glabel
 printQuadruple (IfJmp var ifLabel elseLabel) = do
-    addr <- getAddrOrValue var True
+    addr <- getAddrOrValue var
     outputIndented $ "test " ++ addr ++ ", " ++ addr
     outputIndented $ "je " ++ ifLabel
     outputIndented $ "jmp " ++ elseLabel  -- TODO: optimize it
@@ -129,45 +129,37 @@ printQuadruple (Call flabel i) = do
     when (i > 0) $ outputIndented ("add esp, " ++ show (addrSize i))
 printQuadruple (FCall lvar flabel i) = do
     outputIndented $ "call " ++ flabel
-    lAddr <- getAddrOrValue lvar False
+    lAddr <- getAddrOrValue lvar
     outputIndented $ "mov " ++ lAddr ++ ", eax"
     when (i > 0) $ outputIndented ("add esp, " ++ show (addrSize i))
 printQuadruple (Param var) = do
-    addr <- getAddrOrValue var False
+    addr <- getAddrOrValue var
     outputIndented $ "mov eax, " ++ addr
     outputIndented $ "push eax"
 printQuadruple (Return var) = do
     case var of
         Just v -> do
-            addr <- getAddrOrValue v False
+            addr <- getAddrOrValue v
             outputIndented $ "mov eax, " ++ addr
         Nothing -> return ()
     fname <- asks _fname
     outputIndented $ "jmp " ++ attachEnd fname
 
-getAddrOrValue :: Var -> Bool -> GenerateM String
-getAddrOrValue (Var s) rightOperand = do
+getAddrOrValue :: Var -> GenerateM String
+getAddrOrValue (Var s) = do
     argLoc <- asks (Map.lookup s . _argsLoc)
     addr <- addrSize <$> maybe (getVarLocFromState s) return argLoc
     let isArg = isJust argLoc
-    case rightOperand of
-        True -> do
-            outputIndented $ "mov edx, DWORD [" ++ offset isArg addr ++ "]"
-            return "edx"
-        False -> return $ "DWORD [" ++ offset isArg addr ++ "]"
+    return $ "DWORD [" ++ offset isArg addr ++ "]"
     where
         offset :: Bool -> Int -> String
         offset isArg i = (if isArg then "ebp + " else "ebp - ") ++ show i
-getAddrOrValue (Temp s) rightOperand = do
+getAddrOrValue (Temp s) = do
     addr <- addrSize <$> getVarLocFromState s
-    case rightOperand of
-        True -> do
-            outputIndented $ "mov edx, DWORD [ebp - " ++ show addr ++ "]"
-            return "edx"
-        False -> return $ "DWORD [ebp - " ++ show addr ++ "]"
-getAddrOrValue (CInt i) _ = return $ show i
-getAddrOrValue (CBool b) _ = return $ if b then "1" else "0"
-getAddrOrValue (CString s) _ = undefined
+    return $ "DWORD [ebp - " ++ show addr ++ "]"
+getAddrOrValue (CInt i) = return $ show i
+getAddrOrValue (CBool b) = return $ if b then "1" else "0"
+getAddrOrValue (CString s) = undefined
 
 addrSize :: Int -> Int
 addrSize = (4 *)
