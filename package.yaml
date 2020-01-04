@@ -26,6 +26,7 @@ dependencies:
 - containers
 - ansi-terminal
 - dlist
+- lens
 
 library:
   source-dirs: src

@@ -14,17 +14,18 @@ data Var = Var String
          | CBool Bool 
          | CString String
 
-type Label = String
+type Label   = String
+type FunName = String
 
 data Quadruple = Binary Var Var OpBin Var
                | Unary Var OpUn Var
-               | FunHead Type Label [Arg]
+               | FunHead Type FunName [Arg]
                | Label Label
                | Assign Var Var
                | Goto Label
                | IfJmp Var Label Label -- if t then L1 else L2
-               | Call Label Int  -- call f with n arguments
-               | FCall Var Label Int
+               | Call FunName Int  -- call f with n arguments
+               | FCall Var FunName Int
                | Param Var
                | Return (Maybe Var)
             
