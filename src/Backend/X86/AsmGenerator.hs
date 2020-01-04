@@ -10,18 +10,19 @@ import qualified Data.Map as Map
 import Frontend.AST (Arg(..))
 import Backend.Quadruples
 import Backend.FuncDef
+import Backend.AsmCommands
 import Utils.StringUtils
 
 data ReaderEnv = ReaderEnv { _argsLoc :: Map.Map String Int
                            , _fname   :: String }
 data StateEnv  = StateEnv  { _varLoc  :: Map.Map String Int,
                              _nextLoc :: Int }
-type WrtList   = DList String
+type WrtList   = DList AsmCommand
 
 type GenerateM = RWS ReaderEnv WrtList StateEnv
 
 compile :: [FuncDef] -> [String]
-compile funcs = nasmHeader ++ toList wrtList
+compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList)
     where
         (_, wrtList) = evalRWS (forM_ funcs processFuncDef) initReader initState
         initReader = ReaderEnv { _argsLoc = Map.empty, _fname = "" }
@@ -63,19 +64,20 @@ processFuncDef fdef = do
 printProlog :: String -> Int -> Bool -> GenerateM ()
 printProlog fname lCount onlyReturn = do
     -- when (fname == "main") (output $ "_start:")
-    output $ fname ++ ":"
-    unless onlyReturn $ outputIndented "push ebp"
-    unless onlyReturn $ outputIndented "mov ebp, esp"
-    when (not onlyReturn && lCount > 0) $ 
-        outputIndented ("sub esp, " ++ show (addrSize lCount))
+    output $ AsmLabel fname
+    unless onlyReturn $ output (Push (Register EBP Lower32))
+    unless onlyReturn $ 
+        output (Mov (Register EBP Lower32) esp)
+    when (not onlyReturn && lCount > 0) $
+        output (Sub esp (Const $ addrSize lCount))
 
 printEpilog :: String -> Int -> Bool -> GenerateM ()
 printEpilog fname lCount onlyReturn = do
-    unless onlyReturn $ output $ attachEnd fname ++ ":"
+    unless onlyReturn $ output (AsmLabel $ attachEnd fname)
     when (not onlyReturn && lCount > 0) $ 
-        outputIndented ("add esp, " ++ show (addrSize lCount))
-    unless onlyReturn $ outputIndented "pop ebp"
-    outputIndented "ret"
+        output (Add esp (Const $ addrSize lCount))
+    unless onlyReturn $ output (Pop (Register EBP Lower32))
+    output Ret
 
 attachEnd :: String -> String
 attachEnd s = ("." ++ s ++ "_end")
@@ -84,117 +86,126 @@ printQuadruple :: Quadruple -> GenerateM ()
 printQuadruple (Binary lvar a op b) = processBinary lvar a op b
 printQuadruple (Unary lvar op a) = do
     aAddr <- getAddrOrValue a False
-    outputIndented $ "mov eax, " ++ aAddr
-    outputIndented $ op' ++ " eax"
+    output $ Mov eax aAddr
+    output $ op' eax
     lAddr <- getAddrOrValue lvar False
-    outputIndented $ "mov " ++ lAddr ++ ", eax"
+    output $ Mov lAddr eax
     where
         op' = case op of
-            UMinus -> "neg"
-            UNot   -> "not"
-printQuadruple (Label label) = output $ label ++ ":"
+            UMinus -> Neg
+            UNot   -> Not
+printQuadruple (Label label) = output $ AsmLabel label
 printQuadruple (Assign lvar rvar) = do
     rAddr <- getAddrOrValue rvar True
     lAddr <- getAddrOrValue lvar False
-    outputIndented $ "mov " ++ lAddr ++ ", " ++ rAddr
-printQuadruple (Goto glabel) = outputIndented $ "jmp " ++ glabel
+    output $ Mov lAddr rAddr
+printQuadruple (Goto glabel) = output $ Jmp glabel
 printQuadruple (IfJmp var ifLabel elseLabel) = do
     addr <- getAddrOrValue var True
-    outputIndented $ "test " ++ addr ++ ", " ++ addr
-    outputIndented $ "je " ++ elseLabel
+    output $ Test addr addr
+    output $ JmpMnem Equal elseLabel
 printQuadruple (Call flabel i) = do
-    outputIndented $ "call " ++ flabel
-    when (i > 0) $ outputIndented ("add esp, " ++ show (addrSize i))
+    output $ AsmCall flabel
+    when (i > 0) $ output (Add esp (Const $ addrSize i))
 printQuadruple (FCall lvar flabel i) = do
-    outputIndented $ "call " ++ flabel
+    output $ AsmCall flabel
     lAddr <- getAddrOrValue lvar False
-    outputIndented $ "mov " ++ lAddr ++ ", eax"
-    when (i > 0) $ outputIndented ("add esp, " ++ show (addrSize i))
+    output $ Mov lAddr eax
+    when (i > 0) $ output (Add esp (Const $ addrSize i))
 printQuadruple (Param var) = do
     addr <- getAddrOrValue var False
-    outputIndented $ "mov eax, " ++ addr
-    outputIndented $ "push eax"
+    output $ Mov eax addr
+    output $ Push eax
 printQuadruple (Return var) = do
     case var of
         Just v -> do
             addr <- getAddrOrValue v False
-            outputIndented $ "mov eax, " ++ addr
+            output $ Mov eax addr
         Nothing -> return ()
     fname <- asks _fname
-    outputIndented $ "jmp " ++ attachEnd fname
+    output $ Jmp (attachEnd fname)
 
 processBinary :: Var -> Var -> OpBin -> Var -> GenerateM ()
 processBinary lvar a (BAdd op) b = processAddBinary lvar a op' b
     where
         op' = case op of
-            BPlus -> "add"
-            BMinus -> "sub"
+            BPlus -> Add
+            BMinus -> Sub
 processBinary lvar a (BMul op) b = undefined
 processBinary lvar a (BRel op) b = do
-    outputIndented $ "xor eax, eax"
+    let ecx = Register ECX Lower32
+    output $ Xor eax eax
     aAddr <- getAddrOrValue a False
-    outputIndented $ "mov ecx, " ++ aAddr
+    output $ Mov ecx aAddr
     bAddr <- getAddrOrValue b False
-    outputIndented $ "cmp ecx, " ++ bAddr
-    outputIndented $ setop ++ " al"
+    output $ Cmp ecx bAddr
+    output $ Set setMnemo (Register EAX Lower8)
     lAddr <- getAddrOrValue lvar False
-    outputIndented $ "mov " ++ lAddr ++ ", eax"
+    output $ Mov lAddr eax
     where
-        setop = case op of
-            BLTH -> "setl"
-            BGTH -> "setg"
-            BEQU -> "sete"
-            BLE  -> "setle"
-            BGE  -> "setge"
-            BNE  -> "setne"
+        setMnemo = case op of
+            BLTH -> Lower
+            BGTH -> Greater
+            BEQU -> Equal
+            BLE  -> LowerEq
+            BGE  -> GreaterEq
+            BNE  -> NonEq
 processBinary lvar a (BLog op) b = processAddBinary lvar a op' b
     where
         op' = case op of
-            BAnd -> "and"
-            BOr  -> "or"
+            BAnd -> And
+            BOr  -> Or
 
-processAddBinary :: Var -> Var -> String -> Var -> GenerateM ()
+type BinConst = Memory -> Memory -> AsmCommand
+processAddBinary :: Var -> Var -> BinConst -> Var -> GenerateM ()
 processAddBinary lvar a op b = do
     aAddr <- getAddrOrValue a False
-    outputIndented $ "mov eax, " ++ aAddr
+    output $ Mov eax aAddr
     bAddr <- getAddrOrValue b False
-    outputIndented $ op ++ " eax, " ++ bAddr
+    output $ op eax bAddr
     lAddr <- getAddrOrValue lvar False
-    outputIndented $ "mov " ++ lAddr ++ ", eax"
+    output $ Mov lAddr eax
 
-getAddrOrValue :: Var -> Bool -> GenerateM String
+getAddrOrValue :: Var -> Bool -> GenerateM Memory
 getAddrOrValue (Var s) rightOperand = do
     argLoc <- asks (Map.lookup s . _argsLoc)
     addr <- addrSize <$> maybe (getVarLocFromState s) return argLoc
     let isArg = isJust argLoc
+        mem = Stack (Just DWORD) (if isArg then addr else (-addr))
     case rightOperand of
         True -> do
-            outputIndented $ "mov edx, DWORD [" ++ offset isArg addr ++ "]"
-            return "edx"
-        False -> return $ "DWORD [" ++ offset isArg addr ++ "]"
-    where
-        offset :: Bool -> Int -> String
-        offset isArg i = (if isArg then "ebp + " else "ebp - ") ++ show i
+            let edx = Register EDX Lower32
+            output $ Mov edx mem
+            return edx
+        False -> return mem
 getAddrOrValue (Temp s) rightOperand = do
     addr <- addrSize <$> getVarLocFromState s
+    let mem = Stack (Just DWORD) (-addr)
     case rightOperand of
         True -> do
-            outputIndented $ "mov edx, DWORD [ebp - " ++ show addr ++ "]"
-            return "edx"
-        False -> return $ "DWORD [ebp - " ++ show addr ++ "]"
-getAddrOrValue (CInt i) _ = return $ show i
-getAddrOrValue (CBool b) _ = return $ if b then "1" else "0"
+            let edx = Register EDX Lower32
+            output $ Mov edx mem
+            return edx
+        False -> return mem
+getAddrOrValue (CInt i) _ = return $ Const (fromIntegral i)
+getAddrOrValue (CBool b) _ = return $ Const (if b then 1 else 0)
 getAddrOrValue (CString s) _ = undefined
 
 addrSize :: Int -> Int
 addrSize = (4 *)
 
+eax :: Memory
+eax = Register EAX Lower32
+
+esp :: Memory
+esp = Register ESP Lower32
+
 -- courtesy of https://stackoverflow.com/a/12131896
 swap1_3 :: (a -> b -> c -> d) -> (b -> c -> a -> d)
 swap1_3 = (flip .) . flip
 
-output :: String -> GenerateM ()
-output x = tell $ singleton x
+output :: AsmCommand -> GenerateM ()
+output = tell . singleton
 
-outputIndented :: String -> GenerateM ()
-outputIndented = tell . singleton . indent
+-- outputIndented :: String -> GenerateM ()
+-- outputIndented = tell . singleton . indent
