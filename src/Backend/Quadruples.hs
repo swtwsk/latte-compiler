@@ -2,7 +2,11 @@ module Backend.Quadruples (
     Quadruple(..),
     Var(..),
     OpBin(..),
-    OpUn(..)
+    OpUn(..),
+    OpAdd(..),
+    OpMul(..),
+    OpRel(..),
+    OpLog(..)
 ) where
 
 import Frontend.AST (Type(..), Arg(..))
@@ -29,9 +33,12 @@ data Quadruple = Binary Var Var OpBin Var
                | Param Var
                | Return (Maybe Var)
             
-data OpBin = BPlus | BMinus | BTimes | BDiv | BMod | BAnd | BOr 
-           | BLTH | BLE | BGTH | BGE | BEQU | BNE
+data OpBin = BAdd OpAdd | BMul OpMul | BRel OpRel | BLog OpLog
 data OpUn  = UMinus | UNot
+data OpAdd = BPlus | BMinus
+data OpMul = BTimes | BDiv | BMod
+data OpRel = BLTH | BLE | BGTH | BGE | BEQU | BNE
+data OpLog = BAnd | BOr
 
 instance Show Quadruple where
     show (Binary lvar a op b) = 
@@ -59,13 +66,27 @@ instance Show Var where
 
 instance Show OpBin where
     show op = case op of
-        BPlus -> "add"
-        BMinus -> "sub"
-        BTimes -> "mul"
-        BDiv -> "div"
-        BMod -> "mod"
-        BAnd -> "and"
-        BOr -> "or"
+        BAdd o -> show o
+        BMul o -> show o
+        BRel  o -> show o
+        BLog o -> show o
+
+instance Show OpAdd where
+    show BPlus  = "+"
+    show BMinus = "-"
+
+instance Show OpMul where
+    show op = case op of
+        BTimes -> "*"
+        BDiv -> "/"
+        BMod -> "%"
+
+instance Show OpLog where
+    show BAnd = "and"
+    show BOr  = "or"
+
+instance Show OpRel where
+    show op = case op of
         BLTH -> "<"
         BLE  -> "<="
         BGTH -> ">"

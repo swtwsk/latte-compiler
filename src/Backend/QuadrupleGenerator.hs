@@ -61,10 +61,10 @@ processStmt (Ass s expr) = do
     output $ Assign (Var s) tmp
     return False
 processStmt (Incr s) = do
-    output $ Binary (Var s) (Var s) BPlus (CInt 1)
+    output $ Binary (Var s) (Var s) (BAdd BPlus) (CInt 1)
     return False
 processStmt (Decr s) = do
-    output $ Binary (Var s) (Var s) BMinus (CInt 1)
+    output $ Binary (Var s) (Var s) (BAdd BMinus) (CInt 1)
     return False
 processStmt (Ret expr) = do
     tmp <- processExpr expr
@@ -141,16 +141,16 @@ processExpr (EApp fname exprs) = do
 processExpr (EString s) = return $ CString s
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
-processExpr (EMul e1 op e2) = processBinExpr e1 e2 (getOp op)
+processExpr (EMul e1 op e2) = processBinExpr e1 e2 (BMul $ getOp op)
     where
         getOp Times = BTimes
         getOp Div   = BDiv
         getOp Mod   = BMod
-processExpr (EAdd e1 op e2) = processBinExpr e1 e2 (getOp op)
+processExpr (EAdd e1 op e2) = processBinExpr e1 e2 (BAdd $ getOp op)
     where
         getOp Plus  = BPlus
         getOp Minus = BMinus
-processExpr (ERel e1 op e2) = processBinExpr e1 e2 (getOp op)
+processExpr (ERel e1 op e2) = processBinExpr e1 e2 (BRel $ getOp op)
     where
         getOp LTH = BLTH
         getOp LE =  BLE
@@ -158,8 +158,8 @@ processExpr (ERel e1 op e2) = processBinExpr e1 e2 (getOp op)
         getOp GE =  BGE
         getOp EQU = BEQU
         getOp NE = BNE
-processExpr (EAnd e1 e2) = processBinExpr e1 e2 BAnd
-processExpr (EOr e1 e2) = processBinExpr e1 e2 BOr
+processExpr (EAnd e1 e2) = processBinExpr e1 e2 (BLog BAnd)
+processExpr (EOr e1 e2) = processBinExpr e1 e2 (BLog BOr)
 
 processUnExpr :: Expr -> OpUn -> GenState Var
 processUnExpr e op = do
