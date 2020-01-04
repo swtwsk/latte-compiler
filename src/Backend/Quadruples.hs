@@ -2,7 +2,7 @@ module Backend.Quadruples (
     Quadruple(..),
     Var(..),
     OpBin(..),
-    OpUn(..),
+    OpUn(..)
 ) where
 
 import Frontend.AST (Type(..), Arg(..))

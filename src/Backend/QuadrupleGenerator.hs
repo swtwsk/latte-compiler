@@ -125,7 +125,7 @@ processExpr ELitFalse = return $ CBool False
 processExpr (EApp fname exprs) = do
     elist <- forM exprs processExpr
     elist' <- forM elist constToTemp
-    forM_ elist' (output . Param)
+    forM_ (reverse elist') (output . Param)
     t <- nextVar
     ftype <- asks $ flip (Map.!) fname . _funs
     output $ (if ftype == TVoid then Call else FCall t) fname (length elist)
@@ -185,7 +185,7 @@ nextLabel = do
     state <- get
     let ind = _nextLabel state
     put $ state { _nextLabel = ind + 1 }
-    return $ "L" ++ show ind
+    return $ ".L" ++ show ind
 
 nextVar :: GenState Var
 nextVar = do
