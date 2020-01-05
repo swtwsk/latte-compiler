@@ -36,9 +36,10 @@ data AsmCommand = Mov Memory Memory
                 | Ret
 
 type StackOffset = Int
+type IsValue   = Bool
 data Memory = Register Register RegBitPart 
-            | Stack (Maybe DataSize) StackOffset 
-            | Data (Maybe DataSize) String 
+            | Stack (Maybe DataSize) StackOffset IsValue
+            | Data (Maybe DataSize) String IsValue
             | Const Int
 
 data RegBitPart = Lower32 | Lower16 | Lower8 deriving (Eq, Ord)
@@ -68,11 +69,15 @@ instance Show AsmCommand where
 
 instance Show Memory where
     show (Register reg bitPart) = maybe "!NoReg!" id $ getRegBitName reg bitPart
-    show (Stack dataSize offset) = maybe "" ((++ " ") . show) dataSize ++ 
-        "[ebp " ++ (if offset < 0 then "- " else "+ ") ++ 
-        (show $ abs offset) ++ "]"
-    show (Data dataSize dataName) = maybe "" show dataSize ++ 
-        "[" ++ dataName ++ "]"
+    show (Stack dataSize offset isVal) = maybe "" ((++ " ") . show) dataSize ++ 
+        valGetter ("ebp" ++ (if offset < 0 then " - " else " + ") ++ 
+        (show $ abs offset))
+        where
+            valGetter = if isVal then getValue else id
+    show (Data dataSize dataName isVal) = maybe "" show dataSize ++ 
+        valGetter dataName
+        where
+            valGetter = if isVal then getValue else id
     show (Const i) = show i
 
 instance Show RelMnemonic where
@@ -99,6 +104,9 @@ getRegBitName :: Register -> RegBitPart -> Maybe String
 getRegBitName reg bitPart = do
     regMap  <- Map.lookup reg regBitPartMap
     Map.lookup bitPart regMap
+
+getValue :: String -> String
+getValue s = "[" ++ s ++ "]"
 
 showTwoArg :: String -> Memory -> Memory -> String
 showTwoArg s m1 m2 = s ++ " " ++ show m1 ++ ", " ++ show m2

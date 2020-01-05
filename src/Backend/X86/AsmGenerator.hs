@@ -13,32 +13,53 @@ import Backend.FuncDef
 import Backend.AsmCommands
 import Utils.StringUtils
 
-data ReaderEnv = ReaderEnv { _argsLoc :: Map.Map String Int
-                           , _fname   :: String }
-data StateEnv  = StateEnv  { _varLoc  :: Map.Map String Int,
-                             _nextLoc :: Int }
+data ReaderEnv = ReaderEnv { _argsLoc    :: Map.Map String Int
+                           , _fname      :: String }
+data StateEnv  = StateEnv  { _varLoc     :: Map.Map String Int
+                           , _nextLoc    :: Int
+                           , _strLoc     :: Map.Map String String
+                           , _nextStrInd :: Int }
 type WrtList   = DList AsmCommand
 
 type GenerateM = RWS ReaderEnv WrtList StateEnv
 
 compile :: [FuncDef] -> [String]
-compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList)
+compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList) ++ rodata ro
     where
-        (_, wrtList) = evalRWS (forM_ funcs processFuncDef) initReader initState
+        (s, wrtList) = execRWS (forM_ funcs processFuncDef) initReader initState
+        ro = _strLoc s
         initReader = ReaderEnv { _argsLoc = Map.empty, _fname = "" }
         initState  = emptyState
 
 emptyState :: StateEnv
-emptyState = StateEnv { _varLoc = Map.empty, _nextLoc = 1 }
+emptyState = StateEnv { _varLoc     = Map.empty
+                      , _nextLoc    = 1
+                      , _strLoc     = Map.empty
+                      , _nextStrInd = 0 }
+
+clearFuncState :: StateEnv -> StateEnv
+clearFuncState s = s { _varLoc = Map.empty, _nextLoc = 1 }
 
 getVarLocFromState :: String -> GenerateM Int
 getVarLocFromState s = do
-    locs <- gets _varLoc
+    state <- get
+    let locs = _varLoc state
     swap1_3 maybe return (Map.lookup s locs) $ do
-        loc <- gets _nextLoc
-        let newLocs = Map.insert s loc locs
-        put $ StateEnv { _varLoc = newLocs, _nextLoc = loc + 1 }
+        let loc     = _nextLoc state
+            newLocs = Map.insert s loc locs
+        put $ state { _varLoc = newLocs, _nextLoc = loc + 1 }
         return loc
+
+getStrLocFromState :: String -> GenerateM String
+getStrLocFromState s = do
+    state <- get
+    let locs = _strLoc state
+    swap1_3 maybe return (Map.lookup s locs) $ do
+        let ind      = _nextStrInd state
+            namedInd = "_msgLC" ++ show ind 
+            newLocs  = Map.insert s namedInd locs
+        put $ state { _strLoc = newLocs, _nextStrInd = ind + 1 }
+        return namedInd
 
 nasmHeader :: [String]
 nasmHeader = [ "section .text"
@@ -46,9 +67,14 @@ nasmHeader = [ "section .text"
              --, "global _start:function"
              , "" ]
 
+rodata :: Map.Map String String -> [String]
+rodata = ("section .rodata" :) . map f . Map.toList
+    where
+        f (str, name) = indent $ name ++ " db " ++ str ++ ", 0"
+
 processFuncDef :: FuncDef -> GenerateM ()
 processFuncDef fdef = do
-    put emptyState  -- clear up the state
+    modify clearFuncState
     printProlog (fdef^.funName) (fdef^.locCount) onlyReturn
     forM_ (fdef^.quads) (local (const newReader) . printQuadruple)
     printEpilog (fdef^.funName) (fdef^.locCount) onlyReturn
@@ -171,7 +197,7 @@ getAddrOrValue (Var s) rightOperand = do
     argLoc <- asks (Map.lookup s . _argsLoc)
     addr <- addrSize <$> maybe (getVarLocFromState s) return argLoc
     let isArg = isJust argLoc
-        mem = Stack (Just DWORD) (if isArg then addr else (-addr))
+        mem = Stack (Just DWORD) (if isArg then addr else (-addr)) True
     case rightOperand of
         True -> do
             let edx = Register EDX Lower32
@@ -180,7 +206,7 @@ getAddrOrValue (Var s) rightOperand = do
         False -> return mem
 getAddrOrValue (Temp s) rightOperand = do
     addr <- addrSize <$> getVarLocFromState s
-    let mem = Stack (Just DWORD) (-addr)
+    let mem = Stack (Just DWORD) (-addr) True
     case rightOperand of
         True -> do
             let edx = Register EDX Lower32
@@ -189,7 +215,9 @@ getAddrOrValue (Temp s) rightOperand = do
         False -> return mem
 getAddrOrValue (CInt i) _ = return $ Const (fromIntegral i)
 getAddrOrValue (CBool b) _ = return $ Const (if b then 1 else 0)
-getAddrOrValue (CString s) _ = undefined
+getAddrOrValue (CString s) _ = do
+    addr <- getStrLocFromState s
+    return $ Data Nothing addr False
 
 addrSize :: Int -> Int
 addrSize = (4 *)
