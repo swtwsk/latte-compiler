@@ -27,6 +27,7 @@ dependencies:
 - ansi-terminal
 - dlist
 - lens
+- integer-logarithms
 
 library:
   source-dirs: src

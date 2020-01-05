@@ -19,11 +19,16 @@ printAsmCommand cmd = case cmd of
 data AsmCommand = Mov Memory Memory
                 | Add Memory Memory
                 | Sub Memory Memory
+                | IMul Memory Memory
+                | IDiv Memory
                 | Test Memory Memory
                 | Cmp Memory Memory
                 | Xor Memory Memory
                 | And Memory Memory
                 | Or Memory Memory
+                | Sar Memory Memory
+                | Shr Memory Memory
+                | Sal Memory Memory
                 | AsmLabel String
                 | Push Memory
                 | Pop Memory
@@ -33,6 +38,7 @@ data AsmCommand = Mov Memory Memory
                 | Jmp String
                 | JmpMnem RelMnemonic String
                 | Set RelMnemonic Memory
+                | Cdq
                 | Ret
 
 type StackOffset = Int
@@ -51,11 +57,16 @@ instance Show AsmCommand where
     show (Mov m1 m2)   = showTwoArg "mov" m1 m2
     show (Add m1 m2)   = showTwoArg "add" m1 m2
     show (Sub m1 m2)   = showTwoArg "sub" m1 m2
+    show (IMul m1 m2)  = showTwoArg "imul" m1 m2
+    show (IDiv m)      = showOneArg "idiv" m
     show (Test m1 m2)  = showTwoArg "test" m1 m2
     show (Cmp m1 m2)   = showTwoArg "cmp" m1 m2
     show (Xor m1 m2)   = showTwoArg "xor" m1 m2
     show (And m1 m2)   = showTwoArg "and" m1 m2
     show (Or m1 m2)    = showTwoArg "or" m1 m2
+    show (Sar m1 m2)   = showTwoArg "sar" m1 m2
+    show (Shr m1 m2)   = showTwoArg "shr" m1 m2
+    show (Sal m1 m2)   = showTwoArg "sal" m1 m2
     show (AsmLabel s)  = s ++ ":"
     show (Push m)      = showOneArg "push" m
     show (Pop m)       = showOneArg "pop" m
@@ -65,6 +76,7 @@ instance Show AsmCommand where
     show (Jmp s)       = "jmp " ++ s
     show (JmpMnem r s) = "j" ++ show r ++ " " ++ s
     show (Set rel m)   = "set" ++ show rel ++ " " ++ show m
+    show Cdq           = "cdq"
     show Ret           = "ret"
 
 instance Show Memory where

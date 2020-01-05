@@ -5,6 +5,8 @@ import Control.Lens ((^.))
 import Data.DList (DList, singleton, toList)
 import Data.List (foldl')
 import Data.Maybe (isJust)
+import Data.Bits(Bits, (.&.))
+import Math.NumberTheory.Logarithms
 import qualified Data.Map as Map
 
 import Frontend.AST (Arg(..))
@@ -24,10 +26,11 @@ type WrtList   = DList AsmCommand
 type GenerateM = RWS ReaderEnv WrtList StateEnv
 
 compile :: [FuncDef] -> [String]
-compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList) ++ rodata ro
+compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList) ++ printRo
     where
         (s, wrtList) = execRWS (forM_ funcs processFuncDef) initReader initState
         ro = _strLoc s
+        printRo = if Map.size ro == 0 then [] else rodata ro
         initReader = ReaderEnv { _argsLoc = Map.empty, _fname = "" }
         initState  = emptyState
 
@@ -104,7 +107,7 @@ printProlog fname lCount onlyReturn = do
 
 printEpilog :: String -> Int -> Bool -> GenerateM ()
 printEpilog fname lCount onlyReturn = do
-    unless onlyReturn $ output (AsmLabel $ attachEnd fname)
+    output (AsmLabel $ attachEnd fname)  -- TODO: optimize it!
     when (not onlyReturn && lCount > 0) $ 
         output (Add esp (Const $ addrSize lCount))
     unless onlyReturn $ output (Pop (Register EBP Lower32))
@@ -162,7 +165,11 @@ processBinary lvar a (BAdd op) b = processAddBinary lvar a op' b
         op' = case op of
             BPlus -> Add
             BMinus -> Sub
-processBinary lvar a (BMul op) b = undefined
+processBinary lvar a (BMul op) b = do
+    case (a, b) of
+        (CInt i, _) -> multiplyConstant lvar b op (fromIntegral i)
+        (_, CInt i) -> multiplyConstant lvar a op (fromIntegral i)
+        _ -> multiply lvar a op b
 processBinary lvar a (BRel op) b = do
     let ecx = Register ECX Lower32
     output $ Xor eax eax
@@ -197,6 +204,76 @@ processAddBinary lvar a op b = do
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
 
+multiplyConstant :: Var -> Var -> OpMul -> Int -> GenerateM ()
+multiplyConstant lvar _ BTimes 0 = do
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr (Const 0)
+multiplyConstant lvar var BTimes cst = do
+    vAddr <- getAddrOrValue var False
+    output $ Mov eax vAddr
+    output $ if isPower2 cst 
+        then Sar eax (Const $ cst `div` 2) 
+        else IMul eax (Const cst)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+multiplyConstant lvar var BDiv cst = do
+    let absCst = abs cst
+    if isPower2 absCst then divideByTwo lvar var cst (cst < 0)
+    else do
+        vAddr <- getAddrOrValue var False
+        output $ Mov eax vAddr
+        output $ Mov edx (Const cst)
+        output $ IDiv edx
+        lAddr <- getAddrOrValue lvar False
+        output $ Mov lAddr eax
+multiplyConstant lvar var BMod cst = undefined
+
+-- Based on old gcc implementation
+divideByTwo :: Var -> Var -> Int -> Bool -> GenerateM ()
+divideByTwo lvar var 2 isNeg = do
+    vAddr <- getAddrOrValue var False
+    output $ Mov edx vAddr
+    output $ Mov eax edx
+    output $ Shr eax (Const 31)
+    output $ Add eax edx
+    output $ Sar eax (Const 1)
+    when isNeg (output $ Neg eax)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+divideByTwo lvar var 2147483648 _ = do
+    vAddr <- getAddrOrValue var False
+    output $ Mov eax vAddr
+    output $ Shr eax (Const 31)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+divideByTwo lvar var n isNeg = do
+    let nlog = integerLog2 (fromIntegral n) - 1
+    vAddr <- getAddrOrValue var False
+    output $ Mov edx vAddr
+    output $ Mov eax edx
+    output $ Sar eax (Const 31)
+    output $ Shr eax (Const $ 31 - nlog)
+    output $ Add eax edx
+    output $ Sar eax (Const $ nlog + 1)
+    when isNeg (output $ Neg eax)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+
+multiply :: Var -> Var -> OpMul -> Var -> GenerateM ()
+multiply lvar a op b = case op of
+    BTimes -> processAddBinary lvar a IMul b
+    BDiv   -> doDiv eax
+    BMod   -> doDiv (Register EDX Lower32)
+    where
+        doDiv reg = do
+            aAddr <- getAddrOrValue a False
+            output $ Mov eax aAddr
+            output Cdq
+            bAddr <- getAddrOrValue b False
+            output $ IDiv bAddr
+            lAddr <- getAddrOrValue lvar False
+            output $ Mov lAddr reg
+
 getAddrOrValue :: Var -> Bool -> GenerateM Memory
 getAddrOrValue (Var s) rightOperand = do
     argLoc <- asks (Map.lookup s . _argsLoc)
@@ -205,7 +282,6 @@ getAddrOrValue (Var s) rightOperand = do
         mem = Stack (Just DWORD) (if isArg then addr else (-addr)) True
     case rightOperand of
         True -> do
-            let edx = Register EDX Lower32
             output $ Mov edx mem
             return edx
         False -> return mem
@@ -214,7 +290,6 @@ getAddrOrValue (Temp s) rightOperand = do
     let mem = Stack (Just DWORD) (-addr) True
     case rightOperand of
         True -> do
-            let edx = Register EDX Lower32
             output $ Mov edx mem
             return edx
         False -> return mem
@@ -230,12 +305,19 @@ addrSize = (4 *)
 eax :: Memory
 eax = Register EAX Lower32
 
+edx :: Memory
+edx = Register EDX Lower32
+
 esp :: Memory
 esp = Register ESP Lower32
 
 -- courtesy of https://stackoverflow.com/a/12131896
 swap1_3 :: (a -> b -> c -> d) -> (b -> c -> a -> d)
 swap1_3 = (flip .) . flip
+
+-- courtesy of https://stackoverflow.com/a/58481625
+isPower2 :: (Bits i, Integral i) => i -> Bool
+isPower2 n = n .&. (n-1) == 0
 
 output :: AsmCommand -> GenerateM ()
 output = tell . singleton
