@@ -64,6 +64,11 @@ getStrLocFromState s = do
 nasmHeader :: [String]
 nasmHeader = [ "section .text"
              , "global main:function"
+             , "extern printString"
+             , "extern printInt"
+             , "extern error"
+             , "extern readInt"
+             , "extern readString"
              --, "global _start:function"
              , "" ]
 
