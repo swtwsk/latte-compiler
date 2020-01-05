@@ -91,8 +91,8 @@ processAssigningQuadruple q var = do
     ls <- gets (^. locals)
     as <- gets (^. current . funArgs)
     let lVar = case var of
-            Var s -> if isArg s as then Nothing else Just $ "%v_" ++ s
-            Temp s -> Just $ "%t_" ++ s
+            Var s _ -> if isArg s as then Nothing else Just $ "%v_" ++ s
+            Temp s _ -> Just $ "%t_" ++ s
             _ -> Nothing
     maybe (return ()) (\x -> modify $ over locals (x `Set.insert`)) lVar
     modify (over (current . quads) (q:))

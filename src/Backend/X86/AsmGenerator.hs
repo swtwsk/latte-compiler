@@ -72,6 +72,7 @@ nasmHeader = [ "section .text"
              , "extern error"
              , "extern readInt"
              , "extern readString"
+             , "extern __concatString"
              --, "global _start:function"
              , "" ]
 
@@ -275,7 +276,7 @@ multiply lvar a op b = case op of
             output $ Mov lAddr reg
 
 getAddrOrValue :: Var -> Bool -> GenerateM Memory
-getAddrOrValue (Var s) rightOperand = do
+getAddrOrValue (Var s _) rightOperand = do
     argLoc <- asks (Map.lookup s . _argsLoc)
     addr <- addrSize <$> maybe (getVarLocFromState s) return argLoc
     let isArg = isJust argLoc
@@ -285,7 +286,7 @@ getAddrOrValue (Var s) rightOperand = do
             output $ Mov edx mem
             return edx
         False -> return mem
-getAddrOrValue (Temp s) rightOperand = do
+getAddrOrValue (Temp s _) rightOperand = do
     addr <- addrSize <$> getVarLocFromState s
     let mem = Stack (Just DWORD) (-addr) True
     case rightOperand of

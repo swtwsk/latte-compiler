@@ -6,14 +6,15 @@ module Backend.Quadruples (
     OpAdd(..),
     OpMul(..),
     OpRel(..),
-    OpLog(..)
+    OpLog(..),
+    varType
 ) where
 
 import Frontend.AST (Type(..), Arg(..))
 import Utils.StringUtils (safeShowList)
 
-data Var = Var String 
-         | Temp String 
+data Var = Var String Type
+         | Temp String Type
          | CInt Integer 
          | CBool Bool 
          | CString String
@@ -40,6 +41,14 @@ data OpMul = BTimes | BDiv | BMod
 data OpRel = BLTH | BLE | BGTH | BGE | BEQU | BNE
 data OpLog = BAnd | BOr
 
+varType :: Var -> Type
+varType var = case var of
+    Var _ t   -> t
+    Temp _ t  -> t
+    CInt _    -> TInt
+    CBool _   -> TBool
+    CString _ -> TStr
+
 instance Show Quadruple where
     show (Binary lvar a op b) = 
         show lvar ++ " := " ++ show a ++ " " ++ show op ++ " " ++ show b
@@ -58,8 +67,8 @@ instance Show Quadruple where
     show (Return var) = "return " ++ maybe "" show var
 
 instance Show Var where
-    show (Var s)     = s
-    show (Temp s)    = "%_" ++ s
+    show (Var s _)   = s
+    show (Temp s _)  = "%_" ++ s
     show (CInt i)    = show i
     show (CBool b)   = show b
     show (CString s) = s
