@@ -74,6 +74,18 @@ optimizeExpr e = case e of
         Right (CBool b) -> Right (CBool $ not b)
         Right r -> Left $ Not (constToLit r)
         Left l -> Left $ Not l
+    -- Java-like modulo
+    EMul e1 Mod e2 -> case (optimizeExpr e1, optimizeExpr e2) of
+        (Right (CInt i1), Right (CInt i2)) ->
+            let abs1 = abs i1
+                abs2 = abs i2
+                absRes = abs1 `mod` abs2
+                res = if i1 < 0 then (-absRes) else absRes
+            in Right $ CInt res
+        (Right a, Right b) -> Left (EMul (constToLit a) Mod (constToLit b))
+        (Right a, Left b)  -> Left (EMul (constToLit a) Mod b)
+        (Left a, Right b)  -> Left (EMul a Mod (constToLit b))
+        (Left a, Left b)   -> Left (EMul a Mod b)
     EMul e1 op e2 -> case (optimizeExpr e1, optimizeExpr e2) of
         (Right (CInt i1), Right (CInt i2)) ->
             Right (CInt $ mulOp op i1 i2)
@@ -84,7 +96,6 @@ optimizeExpr e = case e of
         where
             mulOp Times = (*)
             mulOp Div = div
-            mulOp Mod = mod
     EAdd e1 op e2 -> case (optimizeExpr e1, optimizeExpr e2) of
         (Right (CInt i1), Right (CInt i2)) ->
             Right (CInt $ addOp op i1 i2)

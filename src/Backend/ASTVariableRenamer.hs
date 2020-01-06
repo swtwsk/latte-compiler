@@ -28,6 +28,7 @@ processBlock :: Block -> RenameState Block
 processBlock (Block stmts) = forM stmts processStmt >>= return . Block
 
 processStmt :: Stmt -> RenameState Stmt
+processStmt Empty = return Empty
 processStmt (BStmt block) = do
     env  <- get
     supp <- getSupply
