@@ -2,8 +2,11 @@ flags: {}
 packages:
 - .
 system-ghc: true
+install-ghc: false # TODO: remove
 
 extra-deps:
 - ansi-terminal-0.10.2
 
-resolver: lts-13.16
+resolver: lts-11.22
+compiler: ghc-8.2.2
+# resolver: lts-13.16

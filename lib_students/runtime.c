@@ -1,6 +1,14 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#define NULL 0
+typedef unsigned int size_t;
+extern int printf(const char *format, ...);
+extern int scanf(const char *format, ...);
+extern int getchar(void);
+extern void exit(int status);
+extern size_t strlen(const char *s);
+extern void *malloc(size_t size);
+extern void *realloc(void *ptr, size_t size);
+extern char *strcpy (char* strTo, const char* strFrom);
+char *strcat (char* strTo, const char* strFrom);
 
 typedef const char * string;
 
@@ -31,7 +39,7 @@ string readString() {
     size_t currLen = 0;
     char c;
 
-    while (c = getchar()) {
+    while ((c = getchar())) {
         if(c == '\n' || c == '\0')
             break;
         
