@@ -28,25 +28,17 @@ dependencies:
 - dlist
 - lens
 - integer-logarithms
+- system-filepath
+- filepath
+- process
 
 library:
   source-dirs: src
 
 executables:
-  latte-exe:
+  latc_x86:
     main:                Main.hs
     source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - latte
-
-tests:
-  latte-test:
-    main:                Spec.hs
-    source-dirs:         test
     ghc-options:
     - -threaded
     - -rtsopts
