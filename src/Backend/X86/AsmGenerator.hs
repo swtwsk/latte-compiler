@@ -67,7 +67,7 @@ getStrLocFromState s = do
         return namedInd
 
 nasmHeader :: [String]
-nasmHeader = [ "section .text", "global main:function" ] ++ 
+nasmHeader = [ "section .text", "global main" ] ++ 
              (("extern " ++) <$> externFuncList) ++ 
              [""]
 
@@ -110,7 +110,7 @@ printEpilog fname lCount onlyReturn = do
     output Ret
 
 attachEnd :: String -> String
-attachEnd s = ("." ++ s ++ "_end")
+attachEnd s = "." ++ s ++ "_end"
 
 printQuadruple :: Quadruple -> GenerateM ()
 printQuadruple (Binary lvar a op b) = processBinary lvar a op b
@@ -167,11 +167,10 @@ processBinary lvar a (BAdd op) b = processAddBinary lvar a op' b
         op' = case op of
             BPlus -> Add
             BMinus -> Sub
-processBinary lvar a (BMul op) b = do
-    case (a, b) of
-        (CInt i, _) -> multiplyConstant lvar b op (fromIntegral i)
-        (_, CInt i) -> multiplyConstant lvar a op (fromIntegral i)
-        _ -> multiply lvar a op b
+processBinary lvar a (BMul op) b = case (a, b) of
+    (CInt i, _) -> multiplyConstant lvar b op (fromIntegral i)
+    (_, CInt i) -> multiplyConstant lvar a op (fromIntegral i)
+    _ -> multiply lvar a op b
 processBinary lvar a (BRel op) b = do
     let ecx = Register ECX Lower32
     output $ Xor eax eax
@@ -297,19 +296,11 @@ getAddrOrValue (Var s _) rightOperand = do
     addr <- addrSize <$> maybe (getVarLocFromState s) return argLoc
     let isArg = isJust argLoc
         mem = Stack (Just DWORD) (if isArg then addr else (-addr)) True
-    case rightOperand of
-        True -> do
-            output $ Mov edx mem
-            return edx
-        False -> return mem
+    if rightOperand then output (Mov edx mem) >> return edx else return mem
 getAddrOrValue (Temp s _) rightOperand = do
     addr <- addrSize <$> getVarLocFromState s
     let mem = Stack (Just DWORD) (-addr) True
-    case rightOperand of
-        True -> do
-            output $ Mov edx mem
-            return edx
-        False -> return mem
+    if rightOperand then output (Mov edx mem) >> return edx else return mem
 getAddrOrValue (CInt i) _ = return $ Const (fromIntegral i)
 getAddrOrValue (CBool b) _ = return $ Const (if b then 1 else 0)
 getAddrOrValue (CString s) _ = do

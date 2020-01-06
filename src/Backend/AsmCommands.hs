@@ -81,7 +81,7 @@ instance Show Memory where
     show (Register reg bitPart) = maybe "!NoReg!" id $ getRegBitName reg bitPart
     show (Stack dataSize offset isVal) = maybe "" ((++ " ") . show) dataSize ++ 
         valGetter ("ebp" ++ (if offset < 0 then " - " else " + ") ++ 
-        (show $ abs offset))
+        show (abs offset))
         where
             valGetter = if isVal then getValue else id
     show (Data dataSize dataName isVal) = maybe "" show dataSize ++ 

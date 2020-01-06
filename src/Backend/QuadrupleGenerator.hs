@@ -222,7 +222,7 @@ processAddExpr e1 e2 = do
     case varType a1 of
         TInt -> output $ Binary t a1 (BAdd BPlus) a2
         TStr -> processExpr (EApp concatStringName 
-            [varToExpr a1, varToExpr a2]) >>= (\t' -> output $ Assign t t')
+            [varToExpr a1, varToExpr a2]) >>= (output . Assign t)
     return t
     where
         varToExpr v = case v of

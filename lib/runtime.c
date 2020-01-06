@@ -31,7 +31,7 @@ string readString() {
     size_t currLen = 0;
     char c;
 
-    while (c = getchar()) {
+    while ((c = getchar())) {
         if(c == '\n' || c == '\0')
             break;
         

@@ -11,7 +11,7 @@ type Supply = [String]
 type RenameState = StateT RenameMap VarSupply
 
 runRename :: RenameState a -> RenameMap -> Supply -> (a, Supply)
-runRename f rm supp = runVarSupply (evalStateT f rm) supp
+runRename f rm = runVarSupply (evalStateT f rm)
 
 renameNestedVariables :: Program -> Program
 renameNestedVariables (Program topdefs) = Program $ processTopDef <$> topdefs
@@ -25,7 +25,7 @@ processTopDef (FnDef t s args block) = FnDef t s args res
         argsMap = Map.fromList $ foldr ((:) . extractArg) [] args
 
 processBlock :: Block -> RenameState Block
-processBlock (Block stmts) = forM stmts processStmt >>= return . Block
+processBlock (Block stmts) = fmap Block (forM stmts processStmt)
 
 processStmt :: Stmt -> RenameState Stmt
 processStmt Empty = return Empty
@@ -42,9 +42,9 @@ processStmt (Ass s expr) = do
     s' <- gets $ flip (Map.!) s
     e' <- processExpr expr
     return $ Ass s' e'
-processStmt (Incr s) = varFromIdent s >>= return . Incr
-processStmt (Decr s) = varFromIdent s >>= return . Decr
-processStmt (Ret expr) = processExpr expr >>= return . Ret
+processStmt (Incr s) = fmap Incr (varFromIdent s)
+processStmt (Decr s) = fmap Decr (varFromIdent s)
+processStmt (Ret expr) = fmap Ret (processExpr expr)
 processStmt VRet = return VRet
 processStmt (Cond expr stmt) = processCond Cond expr stmt
 processStmt (CondElse expr stmt1 stmt2) = do
@@ -53,22 +53,22 @@ processStmt (CondElse expr stmt1 stmt2) = do
     stmt2' <- processStmt stmt2
     return $ CondElse expr' stmt1' stmt2'
 processStmt (While expr stmt) = processCond While expr stmt
-processStmt (SExp expr) = processExpr expr >>= return . SExp
+processStmt (SExp expr) = fmap SExp (processExpr expr)
 
 processItem :: Item -> RenameState Item
-processItem (NoInit s) = processItemVar s >>= return . NoInit
+processItem (NoInit s) = fmap NoInit (processItemVar s)
 processItem (Init s e) = do
     e' <- processExpr e
     s' <- processItemVar s
     return $ Init s' e'
 
 processExpr :: Expr -> RenameState Expr
-processExpr (EVar s) = varFromIdent s >>= return . EVar
+processExpr (EVar s) = fmap EVar (varFromIdent s)
 processExpr (EApp s exprs) = do
     exprs' <- forM exprs processExpr
     return $ EApp s exprs'
-processExpr (Neg expr) = processExpr expr >>= return . Neg
-processExpr (Not expr) = processExpr expr >>= return . Not
+processExpr (Neg expr) = fmap Neg (processExpr expr)
+processExpr (Not expr) = fmap Not (processExpr expr)
 processExpr (EMul expr1 op expr2) = processBinExpr EMul expr1 op expr2
 processExpr (EAdd expr1 op expr2) = processBinExpr EAdd expr1 op expr2
 processExpr (ERel expr1 op expr2) = processBinExpr ERel expr1 op expr2

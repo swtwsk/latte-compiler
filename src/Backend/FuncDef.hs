@@ -25,7 +25,7 @@ toFuncDefs qs =
         newDefs = case defs of
             h:t -> (h { _locCount = count }) : t
             []  -> []
-    in reverse ((over quads reverse) <$> newDefs)
+    in reverse (over quads reverse <$> newDefs)
     where
         blankState = SplitState { _locals = Set.empty
                                 , _fdefs  = [] }

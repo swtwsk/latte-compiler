@@ -37,7 +37,7 @@ instance Monad m => MonadVarSupply (VarSupplyT m) where
         put xs
         return x
     buildVar f = fmap f nextVar
-    getSupply = VarSupplyT $ get
+    getSupply = VarSupplyT get
     putSupply newSupp = VarSupplyT $ put newSupp
 
 instance MonadVarSupply m => MonadVarSupply (ReaderT r m) where
