@@ -74,7 +74,7 @@ nasmHeader = [ "section .text", "global main:function" ] ++
 rodata :: Map.Map String String -> [String]
 rodata = ("section .rodata" :) . map f . Map.toList
     where
-        f (str, name) = indent $ name ++ " db \"" ++ str ++ "\", 0"
+        f (str, name) = indent $ name ++ " db \'" ++ str ++ "\', 0"
 
 processFuncDef :: FuncDef -> GenerateM ()
 processFuncDef fdef = do
