@@ -10,6 +10,7 @@ import qualified Data.Map as Map
 import Frontend.AST
 import Backend.TypeMapConstructor
 import Backend.Quadruples
+import Globals
 
 data ReaderEnv = ReaderEnv { _funs      :: Map.Map String Type
                            , _varTypes  :: Map.Map String Type }
@@ -214,9 +215,6 @@ nextVar t = do
     let (x, xs) = fromInfiniteList $ _varSupply state
     put $ state { _varSupply = xs }
     return $ Temp x t
-
-concatStringName :: String
-concatStringName = "__concatString"
 
 -- new GHC version fix, courtesy of haskell-chart repository
 -- https://github.com/timbod7/haskell-chart/pull/197

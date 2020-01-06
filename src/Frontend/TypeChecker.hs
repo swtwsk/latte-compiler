@@ -20,6 +20,8 @@ import Frontend.ReturnType
 import qualified Frontend.AST as FAST
 import qualified Frontend.TranspileAST as TAST
 
+import Globals
+
 type TypeU = Type ()
 data TypeM = TypeM { _type :: TypeU, _outer :: Bool }
 type PosType = Maybe (Int, Int)
@@ -43,11 +45,11 @@ typeM :: TypeU -> TypeM
 typeM t = TypeM { _type = t, _outer = False }
 
 library :: StateMap
-library = Map.fromList [ ("printInt", typeM $ fun voidT [int])
-                       , ("printString", typeM $ fun voidT [string])
-                       , ("error", typeM $ fun voidT []) 
-                       , ("readInt", typeM $ fun int [])
-                       , ("readString", typeM $ fun string []) ]
+library = Map.fromList [ (printIntName, typeM $ fun voidT [int])
+                       , (printStringName, typeM $ fun voidT [string])
+                       , (errorName, typeM $ fun voidT []) 
+                       , (readIntName, typeM $ fun int [])
+                       , (readStringName, typeM $ fun string []) ]
     where
         fun = Fun ()
         int = Int ()
@@ -75,8 +77,8 @@ checkTopDef (FnDef pos t (Ident i) args block) = do
     bType <- either throwError return $ evalTCState (checkBlock block) newEnv
     case bType of
         NoReturn -> unless (t' == Void ()) throwNoRet
-        c@(ConstantReturn t'') -> unless (t' == t'') $ throwError (typeErr t'')
-        r@(Return t'') -> unless (t' == t'') $ throwError (typeErr t'')
+        ConstantReturn t'' -> unless (t' == t'') $ throwError (typeErr t'')
+        Return t'' -> unless (t' == t'') $ throwError (typeErr t'')
     where
         t' = void t
         extractArg (Arg _ at (Ident i)) = (i, typeM $ void at)

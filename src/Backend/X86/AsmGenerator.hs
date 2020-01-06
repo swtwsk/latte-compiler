@@ -15,6 +15,8 @@ import Backend.FuncDef
 import Backend.AsmCommands
 import Utils.StringUtils
 
+import Globals (externFuncList)
+
 data ReaderEnv = ReaderEnv { _argsLoc    :: Map.Map String Int
                            , _fname      :: String }
 data StateEnv  = StateEnv  { _varLoc     :: Map.Map String Int
@@ -65,16 +67,9 @@ getStrLocFromState s = do
         return namedInd
 
 nasmHeader :: [String]
-nasmHeader = [ "section .text"
-             , "global main:function"
-             , "extern printString"
-             , "extern printInt"
-             , "extern error"
-             , "extern readInt"
-             , "extern readString"
-             , "extern __concatString"
-             --, "global _start:function"
-             , "" ]
+nasmHeader = [ "section .text", "global main:function" ] ++ 
+             (("extern " ++) <$> externFuncList) ++ 
+             [""]
 
 rodata :: Map.Map String String -> [String]
 rodata = ("section .rodata" :) . map f . Map.toList
@@ -213,6 +208,7 @@ multiplyConstant :: Var -> Var -> OpMul -> Int -> GenerateM ()
 multiplyConstant lvar _ BTimes 0 = do
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr (Const 0)
+multiplyConstant lvar var BTimes 1 = printQuadruple (Assign lvar var)
 multiplyConstant lvar var BTimes cst = do
     vAddr <- getAddrOrValue var False
     output $ Mov eax vAddr
@@ -221,17 +217,18 @@ multiplyConstant lvar var BTimes cst = do
         else IMul eax (Const cst)
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
+multiplyConstant lvar var BDiv 1 = printQuadruple (Assign lvar var)
 multiplyConstant lvar var BDiv cst = do
     let absCst = abs cst
-    if isPower2 absCst then divideByTwo lvar var cst (cst < 0)
-    else do
-        vAddr <- getAddrOrValue var False
-        output $ Mov eax vAddr
-        output $ Mov edx (Const cst)
-        output $ IDiv edx
-        lAddr <- getAddrOrValue lvar False
-        output $ Mov lAddr eax
-multiplyConstant lvar var BMod cst = undefined
+    if isPower2 absCst && absCst <= 2147483648 
+        then divideByTwo lvar var cst (cst < 0)
+        else multiply lvar var BDiv (CInt $ fromIntegral cst)
+multiplyConstant lvar _ BMod 1 = printQuadruple (Assign lvar (CInt 0))
+multiplyConstant lvar var BMod cst = do
+    let absCst = abs cst
+    if isPower2 absCst && absCst <= 1073741824
+        then moduloByTwo lvar var cst
+        else multiply lvar var BMod (CInt $ fromIntegral cst)
 
 -- Based on old gcc implementation
 divideByTwo :: Var -> Var -> Int -> Bool -> GenerateM ()
@@ -264,11 +261,24 @@ divideByTwo lvar var n isNeg = do
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
 
+moduloByTwo :: Var -> Var -> Int -> GenerateM ()
+moduloByTwo lvar var n = do
+    let nlog = integerLog2 $ fromIntegral n
+    vAddr <- getAddrOrValue var False
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov eax vAddr
+    output Cdq
+    output $ Shr edx (Const 31)
+    output $ Add eax edx
+    output $ And eax (Const $ n - 1)
+    output $ Sub eax edx
+    output $ Mov lAddr eax
+
 multiply :: Var -> Var -> OpMul -> Var -> GenerateM ()
 multiply lvar a op b = case op of
     BTimes -> processAddBinary lvar a IMul b
     BDiv   -> doDiv eax
-    BMod   -> doDiv (Register EDX Lower32)
+    BMod   -> doDiv edx
     where
         doDiv reg = do
             aAddr <- getAddrOrValue a False
