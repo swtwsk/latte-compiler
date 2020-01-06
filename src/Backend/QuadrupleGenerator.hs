@@ -32,7 +32,7 @@ generate prog@(Program topdefs) = toList wrtList
     where
         (_, wrtList) = evalRWS (processProg prog) initReader initState
 
-        initReader = ReaderEnv { _funs = funcMap `Map.union` library
+        initReader = ReaderEnv { _funs     = funcMap `Map.union` library
                                , _varTypes = Map.empty }
         initState  = StateEnv { _varSupply = supp
                               , _nextLabel = 0 }
@@ -104,7 +104,7 @@ processStmt (While expr stmt) = do
     output (Label l1) >> processStmt stmt
     output (Label l2)
     tmp <- processExpr expr
-    output $ IfJmp tmp l1 lEnd
+    output $ WhileJmp tmp l1 lEnd
     output $ Label lEnd
     return False
 processStmt (SExp expr) = processExpr expr >> return False  -- ?

@@ -135,10 +135,14 @@ printQuadruple (Assign lvar rvar) = do
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr rAddr
 printQuadruple (Goto glabel) = output $ Jmp glabel
-printQuadruple (IfJmp var ifLabel elseLabel) = do
+printQuadruple (IfJmp var _ elseLabel) = do
     addr <- getAddrOrValue var True
     output $ Test addr addr
     output $ JmpMnem Equal elseLabel
+printQuadruple (WhileJmp var whileLabel _) = do
+    addr <- getAddrOrValue var True
+    output $ Test addr addr
+    output $ JmpMnem NonEq whileLabel
 printQuadruple (Call flabel i) = do
     output $ AsmCall flabel
     when (i > 0) $ output (Add esp (Const $ addrSize i))

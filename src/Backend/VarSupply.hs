@@ -26,8 +26,10 @@ newtype VarSupply a = VarSupply (VarSupplyT Identity a)
     deriving (Functor, Applicative, Monad, MonadVarSupply)
 
 class Monad m => MonadVarSupply m where
-    nextVar :: m String
-    buildVar :: (String -> String) -> m String
+    nextVar   :: m String
+    buildVar  :: (String -> String) -> m String
+    getSupply :: m [String]
+    putSupply :: [String] -> m ()
 
 instance Monad m => MonadVarSupply (VarSupplyT m) where
     nextVar = VarSupplyT $ do
@@ -35,22 +37,32 @@ instance Monad m => MonadVarSupply (VarSupplyT m) where
         put xs
         return x
     buildVar f = fmap f nextVar
+    getSupply = VarSupplyT $ get
+    putSupply newSupp = VarSupplyT $ put newSupp
 
 instance MonadVarSupply m => MonadVarSupply (ReaderT r m) where
-    nextVar = lift nextVar
-    buildVar = lift . buildVar
+    nextVar   = lift nextVar
+    buildVar  = lift . buildVar
+    getSupply = lift getSupply
+    putSupply = lift . putSupply
 
 instance MonadVarSupply m => MonadVarSupply (StateT s m) where
-    nextVar = lift nextVar
-    buildVar = lift . buildVar
+    nextVar   = lift nextVar
+    buildVar  = lift . buildVar
+    getSupply = lift getSupply
+    putSupply = lift . putSupply
 
 instance (MonadVarSupply m, Monoid w) => MonadVarSupply (WriterT w m) where
-    nextVar = lift nextVar
-    buildVar = lift . buildVar
+    nextVar   = lift nextVar
+    buildVar  = lift . buildVar
+    getSupply = lift getSupply
+    putSupply = lift . putSupply
 
 instance (MonadVarSupply m) => MonadVarSupply (ExceptT e m) where
-    nextVar = lift nextVar
-    buildVar = lift . buildVar
+    nextVar   = lift nextVar
+    buildVar  = lift . buildVar
+    getSupply = lift getSupply
+    putSupply = lift . putSupply
 
 evalVarSupplyT :: Monad m => VarSupplyT m a -> [String] -> m a
 evalVarSupplyT (VarSupplyT vs) = evalStateT vs

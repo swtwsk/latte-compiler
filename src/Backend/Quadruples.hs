@@ -29,6 +29,7 @@ data Quadruple = Binary Var Var OpBin Var
                | Assign Var Var
                | Goto Label
                | IfJmp Var Label Label -- if t then L1 else L2
+               | WhileJmp Var Label Label  -- while v { L1 } L2
                | Call FunName Int  -- call f with n arguments
                | FCall Var FunName Int
                | Param Var
@@ -60,6 +61,8 @@ instance Show Quadruple where
     show (Goto glabel) = "goto " ++ glabel
     show (IfJmp var ifLabel elseLabel) = 
         "if " ++ show var ++ " goto " ++ ifLabel ++ " else " ++ elseLabel
+    show (WhileJmp var ifLabel elseLabel) = 
+        "while " ++ show var ++ " goto " ++ ifLabel ++ " else " ++ elseLabel
     show (Call flabel i) = "call " ++ flabel ++ ", " ++ show i
     show (FCall lvar flabel i) = 
         show lvar ++ " := " ++ "fcall " ++ flabel ++ ", " ++ show i
