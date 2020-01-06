@@ -33,7 +33,6 @@ data AsmCommand = Mov Memory Memory
                 | Push Memory
                 | Pop Memory
                 | Neg Memory
-                | Not Memory
                 | AsmCall String
                 | Jmp String
                 | JmpMnem RelMnemonic String
@@ -71,7 +70,6 @@ instance Show AsmCommand where
     show (Push m)      = showOneArg "push" m
     show (Pop m)       = showOneArg "pop" m
     show (Neg m)       = showOneArg "neg" m
-    show (Not m)       = showOneArg "not" m
     show (AsmCall s)   = "call " ++ s
     show (Jmp s)       = "jmp " ++ s
     show (JmpMnem r s) = "j" ++ show r ++ " " ++ s

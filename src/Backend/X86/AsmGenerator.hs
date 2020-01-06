@@ -114,16 +114,18 @@ attachEnd s = ("." ++ s ++ "_end")
 
 printQuadruple :: Quadruple -> GenerateM ()
 printQuadruple (Binary lvar a op b) = processBinary lvar a op b
-printQuadruple (Unary lvar op a) = do
+printQuadruple (Unary lvar UMinus a) = do
     aAddr <- getAddrOrValue a False
     output $ Mov eax aAddr
-    output $ op' eax
+    output $ Neg eax
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
-    where
-        op' = case op of
-            UMinus -> Neg
-            UNot   -> Not
+printQuadruple (Unary lvar UNot a) = do
+    aAddr <- getAddrOrValue a False
+    output $ Mov eax aAddr
+    output $ Xor eax (Const 1)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
 printQuadruple (Label label) = output $ AsmLabel label
 printQuadruple (Assign lvar rvar) = do
     rAddr <- getAddrOrValue rvar True

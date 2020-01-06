@@ -162,8 +162,38 @@ processExpr (ERel e1 op e2) = processBinExpr e1 e2 (BRel $ getOp op)
         getOp GE =  BGE
         getOp EQU = BEQU
         getOp NE = BNE
-processExpr (EAnd e1 e2) = processBinExpr e1 e2 (BLog BAnd)
-processExpr (EOr e1 e2) = processBinExpr e1 e2 (BLog BOr)
+processExpr (EAnd e1 e2) = do
+    lTrue  <- nextLabel
+    lFalse <- nextLabel
+    lEnd   <- nextLabel
+    a1 <- processExpr e1
+    output $ IfJmp a1 lTrue lFalse
+    output $ Label lTrue
+    a2 <- processExpr e2
+    t  <- nextVar (varType a1)
+    output $ Assign t a2
+    output $ Goto lEnd
+    output $ Label lFalse
+    output $ Assign t (CBool False)
+    output $ Goto lEnd
+    output $ Label lEnd
+    return t
+processExpr (EOr e1 e2) = do
+    lTrue  <- nextLabel
+    lFalse <- nextLabel
+    lEnd   <- nextLabel
+    a1 <- processExpr e1
+    output $ IfJmp a1 lTrue lFalse
+    t  <- nextVar (varType a1)
+    output $ Label lTrue
+    output $ Assign t (CBool True)
+    output $ Goto lEnd
+    output $ Label lFalse
+    a2 <- processExpr e2
+    output $ Assign t a2
+    output $ Goto lEnd
+    output $ Label lEnd
+    return t
 
 processUnExpr :: Expr -> OpUn -> GenState Var
 processUnExpr e op = do

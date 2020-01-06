@@ -15,8 +15,18 @@ compile showQuads = unlines . compileFromQuads showQuads .
 
 compileFromQuads :: Bool -> [Quads.Quadruple] -> [String]
 compileFromQuads showQuads = if showQuads 
-    then (show <$>)
+    then showFun
     else Asm.compile . FuncDef.toFuncDefs
+    where
+        showFun (h1:(f@Quads.FunHead {}):t) =
+            [showIndented h1, "", showIndented f] ++ showFun t
+        showFun (h:t) = showIndented h : showFun t
+        showFun [] = []
+
+        showIndented quad = case quad of
+            l@Quads.Label {}   -> show l
+            f@Quads.FunHead {} -> show f
+            x -> indent . show $ x
 
 modifyAST :: Program -> Program
 modifyAST = Renamer.renameNestedVariables . ConstOpt.optimize

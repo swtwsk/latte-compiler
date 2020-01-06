@@ -120,8 +120,22 @@ optimizeExpr e = case e of
             relOp LE  = (<=)
             relOp GE  = (>=)
             relOp NE  = (/=)
-    EAnd e1 e2 -> optimizeBoolExpr e1 e2 (&&) EAnd
-    EOr e1 e2 -> optimizeBoolExpr e1 e2 (&&) EOr
+    EAnd e1 e2 -> case (optimizeExpr e1, optimizeExpr e2) of
+        (Right (CBool i1), Right (CBool i2)) ->
+            Right (CBool $ i1 && i2)
+        (Right (CBool i1), b) -> if i1 then b else Right (CBool False)
+        (Right a, Right b) -> Left (EAnd (constToLit a) (constToLit b))
+        (Right a, Left b)  -> Left (EAnd (constToLit a) b)
+        (Left a, Right b)  -> Left (EAnd a (constToLit b))
+        (Left a, Left b)   -> Left (EAnd a b)
+    EOr e1 e2 -> case (optimizeExpr e1, optimizeExpr e2) of
+        (Right (CBool i1), Right (CBool i2)) ->
+            Right (CBool $ i1 || i2)
+        (Right (CBool i1), b) -> if i1 then Right (CBool True) else b
+        (Right a, Right b) -> Left (EOr (constToLit a) (constToLit b))
+        (Right a, Left b)  -> Left (EOr (constToLit a) b)
+        (Left a, Right b)  -> Left (EOr a (constToLit b))
+        (Left a, Left b)   -> Left (EOr a b)
     x -> Left x
 
 optimizeBoolExpr :: 
