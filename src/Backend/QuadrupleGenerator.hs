@@ -144,7 +144,11 @@ processExpr (EApp fname exprs) = do
             tmp <- nextVar (varType c)
             output (Assign tmp c)
             return tmp
-processExpr (EString s) = return $ CString s
+processExpr (EString s) = return . CString . strip $ s
+    where 
+        strip = lstrip . rstrip
+        lstrip = dropWhile (== '\"')
+        rstrip = reverse . lstrip . reverse
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
 processExpr (EMul e1 op e2) = processBinExpr e1 e2 (BMul $ getOp op)
@@ -244,7 +248,7 @@ nextVar t = do
     state <- get
     let (x, xs) = fromInfiniteList $ _varSupply state
     put $ state { _varSupply = xs }
-    return $ Temp x t
+    return $ Temp ("_t_" ++ x) t
 
 -- new GHC version fix, courtesy of haskell-chart repository
 -- https://github.com/timbod7/haskell-chart/pull/197

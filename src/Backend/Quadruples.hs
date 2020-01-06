@@ -71,10 +71,10 @@ instance Show Quadruple where
 
 instance Show Var where
     show (Var s _)   = s
-    show (Temp s _)  = "%_" ++ s
+    show (Temp s _)  = "%" ++ s
     show (CInt i)    = show i
     show (CBool b)   = show b
-    show (CString s) = s
+    show (CString s) = '\"' : s ++ "\""
 
 instance Show OpBin where
     show op = case op of
