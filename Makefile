@@ -8,3 +8,6 @@ else
 	stack build
 	stack install --local-bin-path=.
 endif
+
+runtime:
+	gcc -m32 -c lib/runtime.c -o lib/runtime.o
