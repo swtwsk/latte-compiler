@@ -12,6 +12,7 @@ do
     filename=$(basename -- "$g")
     filename="${filename%.*}"
 
+    echo $filename
     ./latc_x86 $g
     if [ -f $1/$filename.input ]; then
         $1/$filename < $1/$filename.input > out.output2

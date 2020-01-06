@@ -8,6 +8,7 @@ import Data.Maybe (isJust)
 import Data.Bits(Bits, (.&.))
 import Math.NumberTheory.Logarithms
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Frontend.AST (Arg(..))
 import Backend.Quadruples
@@ -28,13 +29,15 @@ type WrtList   = DList AsmCommand
 type GenerateM = RWS ReaderEnv WrtList StateEnv
 
 compile :: [FuncDef] -> [String]
-compile funcs = nasmHeader ++ (printAsmCommand <$> toList wrtList) ++ printRo
+compile funcs = nasmHeader ++ (printAsmCommand <$> withoutJumps) ++ printRo
     where
         (s, wrtList) = execRWS (forM_ funcs processFuncDef) initReader initState
-        ro = _strLoc s
-        printRo = if Map.size ro == 0 then [] else rodata ro
         initReader = ReaderEnv { _argsLoc = Map.empty, _fname = "" }
         initState  = emptyState
+        ro = _strLoc s
+        printRo = if Map.size ro == 0 then [] else rodata ro
+        funNames = (^.funName) <$> funcs
+        withoutJumps = removeUnnecessaryJumps funNames $ toList wrtList
 
 emptyState :: StateEnv
 emptyState = StateEnv { _varLoc     = Map.empty
@@ -330,5 +333,33 @@ isPower2 n = n .&. (n-1) == 0
 output :: AsmCommand -> GenerateM ()
 output = tell . singleton
 
--- outputIndented :: String -> GenerateM ()
--- outputIndented = tell . singleton . indent
+removeUnnecessaryJumps :: [String] -> [AsmCommand] -> [AsmCommand]
+removeUnnecessaryJumps funNames cmds = 
+    let initialSet = Set.fromList funNames
+        (newCmds, labelsMap) = removeUnnecessaryJumps' ([], initialSet) cmds
+    in removeUnnecessaryLabels [] labelsMap newCmds
+
+type RemoveAcc = ([AsmCommand], Set.Set String)
+removeUnnecessaryJumps' :: RemoveAcc -> [AsmCommand] -> RemoveAcc
+removeUnnecessaryJumps' acc [] = acc
+removeUnnecessaryJumps' (cl, s) (j@(Jmp l1):a@(AsmLabel l2):t) =
+    removeUnnecessaryJumps' (newCmdsList, newSet) t
+    where
+        newCmdsList = if l1 == l2 then a:cl else a:j:cl
+        newSet      = if l1 == l2 then s else Set.insert l1 s
+removeUnnecessaryJumps' (cl, s) (j@(Jmp l):t) =
+    removeUnnecessaryJumps' (j:cl, Set.insert l s) t
+removeUnnecessaryJumps' (cl, s) (j@(JmpMnem _ l):t) =
+    removeUnnecessaryJumps' (j:cl, Set.insert l s) t
+        -- newMap = case Map.lookup l m of
+        --     Just x -> Map.insert l (x + 1) m
+        --     Nothing -> Map.insert l 1 m
+removeUnnecessaryJumps' (cl, s) (h:t) = removeUnnecessaryJumps' (h:cl, s) t
+
+removeUnnecessaryLabels :: [AsmCommand] -> Set.Set String -> [AsmCommand]
+    -> [AsmCommand]
+removeUnnecessaryLabels acc _ [] = acc
+removeUnnecessaryLabels acc s (a@(AsmLabel l):t) =
+    if Set.member l s then removeUnnecessaryLabels (a:acc) s t
+    else removeUnnecessaryLabels acc s t
+removeUnnecessaryLabels acc s (h:t) = removeUnnecessaryLabels (h:acc) s t
