@@ -2,12 +2,11 @@
 module Main where
 
 import System.Process
-import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
+import System.IO ( stdin, hGetContents, hPutStr, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )
 import System.Exit ( exitFailure, exitSuccess )
 import System.FilePath (takeBaseName, takeDirectory, dropExtension)
 import Control.Monad (when)
-import System.Console.ANSI
 
 import AST.LexLatte
 import AST.ParLatte
@@ -37,22 +36,17 @@ usage = do
 
 printFailure :: String -> IO ()
 printFailure err = do
-    setSGR [SetColor Foreground Vivid Red]
-    hPutStrLn stderr "ERROR: "
+    hPutStrLn stderr "ERROR"
     hPutStrLn stderr err
 
 printTypeCheckResult :: TypeCheckResult -> IO ()
 printTypeCheckResult (GoodChecked _) = hPutStrLn stderr "OK"
-printTypeCheckResult (BadChecked (m, err)) = setSGR [Reset] << case m of
+printTypeCheckResult (BadChecked (m, err)) = case m of
         Nothing -> printFailure $ show err
         Just (line, col) -> do
-            setSGR [SetColor Foreground Vivid Red]
-            setSGR [SetConsoleIntensity BoldIntensity]
-            hPutStrLn stderr $ "ERROR " ++ show line ++ ":" ++ show col ++ ": "
-            setSGR [SetDefaultColor Foreground]
-            setSGR [SetConsoleIntensity NormalIntensity]
+            hPutStrLn stderr $ "ERROR"
+            hPutStr stderr $ show line ++ ":" ++ show col ++ ": "
             hPutStrLn stderr $ show err
-    where (<<) = flip (>>)
 
 run :: ParseFun (Program (Maybe (Int, Int))) 
     -> String 

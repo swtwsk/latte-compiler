@@ -24,7 +24,6 @@ dependencies:
 - mtl
 - array
 - containers
-- ansi-terminal
 - dlist
 - lens
 - integer-logarithms
