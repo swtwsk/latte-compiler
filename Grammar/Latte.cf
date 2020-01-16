@@ -4,9 +4,23 @@ entrypoints Program ;
 
 Program.   Program ::= [TopDef] ;
 
-FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Block ;
+FnTopDef.  TopDef ::= FnDef ;
+
+ClassDef.  TopDef ::= "class" Ident "{" [ClassDecl] "}" ;
+
+ClassExtDef. TopDef ::= "class" Ident "extends" Ident "{" [ClassDecl] "}" ;
 
 separator nonempty TopDef "" ;
+
+-- class decl ----
+
+MethodDef. ClassDecl ::= FnDef ;
+
+FieldDef.  ClassDecl ::= Type Ident ";" ;
+
+separator nonempty ClassDecl "" ;
+
+FnDef.     FnDef ::= Type Ident "(" [Arg] ")" Block ;
 
 Arg. 	   Arg ::= Type Ident;
 
@@ -30,11 +44,11 @@ Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= Ident "=" Expr  ";" ;
+Ass.       Stmt ::= Expr "=" Expr  ";" ;
 
-Incr.      Stmt ::= Ident "++"  ";" ;
+Incr.      Stmt ::= Expr "++"  ";" ;
 
-Decr.      Stmt ::= Ident "--"  ";" ;
+Decr.      Stmt ::= Expr "--"  ";" ;
 
 Ret.       Stmt ::= "return" Expr ";" ;
 
@@ -48,6 +62,8 @@ While.     Stmt ::= "while" "(" Expr ")" Stmt ;
 
 SExp.      Stmt ::= Expr  ";" ;
 
+For.       Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt ;
+
 -- Types ---------------------------------------------------
 
 Int.       Type ::= "int" ;
@@ -58,7 +74,17 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
+Array.     Type ::= Type "[]" ;
+
+Class.     Type ::= Ident ;
+
 internal   Fun. Type ::= Type "(" [Type] ")" ;
+
+-- internal   Arr. Type ::= Type "[" Integer "]" ;
+
+internal   Pointer. Type ::= Type "*" ;
+
+-- internal   VTable.  Type ::= Ident ;
 
 separator  Type "," ;
 
@@ -75,6 +101,18 @@ ELitFalse. Expr6 ::= "false" ;
 EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
 
 EString.   Expr6 ::= String ;
+
+EArr.      Expr6 ::= "new" Type "[" Expr "]" ;
+
+EClass.    Expr6 ::= "new" Type ;
+
+EArrGet.   Expr6 ::= Expr6 "[" Expr "]" ;
+
+EFieldGet. Expr6 ::= Expr6 "." Ident ;
+
+EMethod.   Expr6 ::= Expr6 "." Ident "(" [Expr] ")" ;
+
+ENull.     Expr6 ::= "(" Ident ")" "null" ;
 
 Neg.       Expr5 ::= "-" Expr6 ;
 
