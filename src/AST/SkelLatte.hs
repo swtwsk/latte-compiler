@@ -17,6 +17,15 @@ transProgram x = case x of
   Program _ topdefs -> failure x
 transTopDef :: Show a => TopDef a -> Result
 transTopDef x = case x of
+  FnTopDef _ fndef -> failure x
+  ClassDef _ ident classdecls -> failure x
+  ClassExtDef _ ident1 ident2 classdecls -> failure x
+transClassDecl :: Show a => ClassDecl a -> Result
+transClassDecl x = case x of
+  MethodDef _ fndef -> failure x
+  FieldDef _ type_ ident -> failure x
+transFnDef :: Show a => FnDef a -> Result
+transFnDef x = case x of
   FnDef _ type_ ident args block -> failure x
 transArg :: Show a => Arg a -> Result
 transArg x = case x of
@@ -29,15 +38,16 @@ transStmt x = case x of
   Empty _ -> failure x
   BStmt _ block -> failure x
   Decl _ type_ items -> failure x
-  Ass _ ident expr -> failure x
-  Incr _ ident -> failure x
-  Decr _ ident -> failure x
+  Ass _ expr1 expr2 -> failure x
+  Incr _ expr -> failure x
+  Decr _ expr -> failure x
   Ret _ expr -> failure x
   VRet _ -> failure x
   Cond _ expr stmt -> failure x
   CondElse _ expr stmt1 stmt2 -> failure x
   While _ expr stmt -> failure x
   SExp _ expr -> failure x
+  For _ type_ ident expr stmt -> failure x
 transItem :: Show a => Item a -> Result
 transItem x = case x of
   NoInit _ ident -> failure x
@@ -48,7 +58,10 @@ transType x = case x of
   Str _ -> failure x
   Bool _ -> failure x
   Void _ -> failure x
+  Array _ type_ -> failure x
+  Class _ ident -> failure x
   Fun _ type_ types -> failure x
+  Pointer _ type_ -> failure x
 transExpr :: Show a => Expr a -> Result
 transExpr x = case x of
   EVar _ ident -> failure x
@@ -57,6 +70,12 @@ transExpr x = case x of
   ELitFalse _ -> failure x
   EApp _ ident exprs -> failure x
   EString _ string -> failure x
+  EArr _ type_ expr -> failure x
+  EClass _ type_ -> failure x
+  EArrGet _ expr1 expr2 -> failure x
+  EFieldGet _ expr ident -> failure x
+  EMethod _ expr ident exprs -> failure x
+  ENull _ ident -> failure x
   Neg _ expr -> failure x
   Not _ expr -> failure x
   EMul _ expr1 mulop expr2 -> failure x

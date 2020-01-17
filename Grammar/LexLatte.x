@@ -3,7 +3,7 @@
 {
 {-# OPTIONS -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -w #-}
-module LexLatte where
+module AST.LexLatte where
 
 
 
