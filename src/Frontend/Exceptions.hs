@@ -19,6 +19,8 @@ data FrontendException a = NthArgument   { _index         :: Integer
                                          , _gotType1      :: Type a
                                          , _gotType2      :: Type a }
                          | UndeclaredVar { _varName       :: String }
+                         | UndeclaredFld { _varName       :: String }
+                         | UndeclaredMet { _function      :: String }
                          | Redefinition  { _varName       :: String }
                          | DuplicatedArg { _function      :: String
                                          , _varName       :: String }
@@ -34,6 +36,8 @@ data FrontendException a = NthArgument   { _index         :: Integer
                                          , _gotType2      :: Type a }
                          | NoExtension   { _className     :: String 
                                          , _expectedExt   :: String }
+                         | ValueType     { _gotType       :: Type a }
+                         | TypeNotExists { _expectedType  :: Type a }
                          | WrongLValue (Expr a)
                          | NoMain
                          | Unexpected
@@ -58,6 +62,8 @@ instance Show (FrontendException a) where
         show (_expectedType e) ++ ", but they have types " ++ 
         show (_gotType1 e) ++ " and " ++ show (_gotType2 e) ++ " respectively"
     show (UndeclaredVar v) = "Undeclared variable " ++ v
+    show (UndeclaredFld f) = "Undeclared field " ++ f
+    show (UndeclaredMet m) = "Undeclared method " ++ m
     show (Redefinition v)  = "Redefinition of variable " ++ v
     show (DuplicatedArg f arg) = 
         "Duplicated argument " ++ arg ++ " in header of function " ++ f
@@ -75,6 +81,8 @@ instance Show (FrontendException a) where
                              show t1 ++ " and " ++ show t2
     show (NoExtension cn expExt) = "Could not find base class " ++ show expExt
         ++ " for class " ++ cn
+    show (ValueType t) = "Type " ++ show t ++ " is a basic value type"
+    show (TypeNotExists t) = "Type " ++ show t ++ " does not exists"
     show (WrongLValue expr) = 
         show expr ++ " is not a l-value and cannot be assigned"
     show NoMain = "Undefined reference to `int main()`"
