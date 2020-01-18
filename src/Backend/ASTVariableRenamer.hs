@@ -17,7 +17,12 @@ renameNestedVariables :: Program -> Program
 renameNestedVariables (Program topdefs) = Program $ processTopDef <$> topdefs
 
 processTopDef :: TopDef -> TopDef
-processTopDef (FnDef t s args block) = FnDef t s args res    
+processTopDef (FnTopDef fndef) = FnTopDef $ processFnDef fndef
+processTopDef (ClassExtDef i ext decls) = undefined
+processTopDef (ClassDef i decls) = undefined
+
+processFnDef :: FnDef -> FnDef
+processFnDef (FnDef t s args block) = FnDef t s args res    
     where
         (res, _) = runRename (processBlock block) argsMap supp
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
@@ -39,11 +44,11 @@ processStmt (Decl t items) = do
     items' <- forM items processItem
     return $ Decl t items'
 processStmt (Ass s expr) = do
-    s' <- gets $ flip (Map.!) s
+    s' <- varFromExpr s
     e' <- processExpr expr
     return $ Ass s' e'
-processStmt (Incr s) = fmap Incr (varFromIdent s)
-processStmt (Decr s) = fmap Decr (varFromIdent s)
+processStmt (Incr s) = fmap Incr (varFromExpr s)
+processStmt (Decr s) = fmap Decr (varFromExpr s)
 processStmt (Ret expr) = fmap Ret (processExpr expr)
 processStmt VRet = return VRet
 processStmt (Cond expr stmt) = processCond Cond expr stmt
@@ -86,6 +91,12 @@ processItemVar s = do
     return newVar
     where
         varBuilder v = "#" ++ s ++ "_" ++ v
+
+varFromExpr :: Expr -> RenameState Expr
+varFromExpr e@(EVar i) = varFromIdent i >>= return . EVar
+varFromExpr e@(EArrGet {}) = undefined
+varFromExpr e@(EFieldGet {}) = undefined
+varFromExpr expr = undefined
 
 varFromIdent :: String -> RenameState String
 varFromIdent s = gets $ flip (Map.!) s

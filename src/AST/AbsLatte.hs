@@ -9,8 +9,8 @@ data Program a = Program a [TopDef a]
 
 data TopDef a
     = FnTopDef a (FnDef a)
+    | ClassExtDef a Ident Ident [ClassDecl a]  -- for the ord instance
     | ClassDef a Ident [ClassDecl a]
-    | ClassExtDef a Ident Ident [ClassDecl a]
   deriving (Ord, Show, Read)
 
 data ClassDecl a
@@ -348,3 +348,96 @@ instance Show (RelOp a) where
     show (LE _)  = "<="
     show (GE _)  = ">="
     show (NE _)  = "!="
+
+-- Extract ---
+class (Functor f) => Extract f where
+    extract :: f a -> a
+
+instance Extract Program where
+    extract (Program pos _) = pos
+
+instance Extract TopDef where
+    extract (FnTopDef pos _) = pos
+    extract (ClassExtDef pos _ _ _) = pos
+    extract (ClassDef pos _ _) = pos
+
+instance Extract ClassDecl where
+    extract (MethodDef pos _) = pos
+    extract (FieldDef pos _ _) = pos
+
+instance Extract FnDef where
+    extract (FnDef pos _ _ _ _) = pos
+
+instance Extract Arg where
+    extract (Arg pos _ _) = pos
+
+instance Extract Block where
+    extract (Block pos _) = pos
+
+instance Extract Stmt where
+    extract stmt = case stmt of
+        Empty pos -> pos
+        (BStmt pos _) -> pos
+        (Decl pos _ _) -> pos
+        (Ass pos _ _) -> pos
+        (Incr pos _) -> pos
+        (Decr pos _) -> pos
+        (Ret pos _) -> pos
+        (VRet pos) -> pos
+        (Cond pos _ _) -> pos
+        (CondElse pos _ _ _) -> pos 
+        (While pos _ _) -> pos
+        (SExp pos _) -> pos
+        (For pos _ _ _ _) -> pos
+
+instance Extract Item where
+    extract (NoInit pos _) = pos
+    extract (Init pos _ _) = pos
+
+instance Extract Type where
+    extract (Int pos) = pos
+    extract (Str pos) = pos
+    extract (Bool pos) = pos
+    extract (Void pos) = pos
+    extract (Array pos _) = pos
+    extract (Class pos _) = pos
+    extract (Fun pos _ _) = pos
+    extract (Pointer pos _) = pos
+
+instance Extract Expr where
+    extract (EVar pos _) = pos
+    extract (ELitInt pos _) = pos
+    extract (ELitTrue pos) = pos
+    extract (ELitFalse pos) = pos
+    extract (EApp pos _ _) = pos
+    extract (EString pos _) = pos
+    extract (EArr pos _ _) = pos
+    extract (EClass pos _) = pos
+    extract (EArrGet pos _ _) = pos
+    extract (EFieldGet pos _ _) = pos
+    extract (EMethod pos _ _ _) = pos
+    extract (ENull pos _) = pos
+    extract (Neg pos _) = pos
+    extract (Not pos _) = pos
+    extract (EMul pos _ _ _) = pos
+    extract (EAdd pos _ _ _) = pos
+    extract (ERel pos _ _ _) = pos
+    extract (EAnd pos _ _) = pos
+    extract (EOr pos _ _) = pos
+
+instance Extract AddOp where
+    extract (Plus pos) = pos
+    extract (Minus pos) = pos
+
+instance Extract MulOp where
+    extract (Times pos) = pos
+    extract (Div pos) = pos
+    extract (Mod pos) = pos
+
+instance Extract RelOp where
+    extract (LTH pos) = pos
+    extract (GTH pos) = pos
+    extract (EQU pos) = pos
+    extract (LE pos) = pos
+    extract (GE pos) = pos
+    extract (NE pos) = pos

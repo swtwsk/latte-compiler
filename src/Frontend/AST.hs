@@ -20,8 +20,8 @@ data Program = Program [TopDef]
     deriving (Eq, Ord, Read)
 
 data TopDef = FnTopDef FnDef
-            | ClassDef String [ClassDecl]
             | ClassExtDef String String [ClassDecl]
+            | ClassDef String [ClassDecl]
             deriving (Eq, Ord, Read)
 
 data ClassDecl = MethodDef FnDef | FieldDef Type String

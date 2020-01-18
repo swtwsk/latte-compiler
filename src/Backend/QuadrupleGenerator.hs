@@ -39,15 +39,21 @@ generate prog@(Program topdefs) = toList wrtList
                               , _nextLabel = 0 }
 
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
-        funcMap = Map.fromList $ map (\(FnDef v k _ _) -> (k, v)) topdefs
+        funcMap = Map.fromList $ map (\(FnTopDef (FnDef v k _ _)) -> (k, v)) $
+            filter (\d -> case d of {FnTopDef _ -> True; _ -> False}) topdefs
 
 processProg :: Program -> GenState ()
 processProg (Program topdefs) = forM_ topdefs processTopDef
 
 processTopDef :: TopDef -> GenState ()
-processTopDef topdef@(FnDef t name args block) = do
+processTopDef (FnTopDef fndef) = processFnDef fndef
+processTopDef (ClassExtDef i ext decls) = undefined
+processTopDef (ClassDef i decls) = undefined
+
+processFnDef :: FnDef -> GenState ()
+processFnDef fndef@(FnDef t name args block) = do
     output (FunHead t name args)
-    let varTypesMap = typeTopDef topdef
+    let varTypesMap = typeFnDef fndef
     local (\r -> r { _varTypes = varTypesMap }) $ processBlock block
     return ()
 
@@ -62,13 +68,16 @@ processStmt (BStmt block) = processBlock block
 processStmt (Decl t items) = forM_ items (processItem t) >> return False
 processStmt (Ass s expr) = do
     tmp <- processExpr expr
-    output $ Assign (Var s (varType tmp)) tmp
+    s' <- extractVar s
+    output $ Assign (Var s' (varType tmp)) tmp
     return False
 processStmt (Incr s) = do
-    output $ Binary (Var s TInt) (Var s TInt) (BAdd BPlus) (CInt 1)
+    s' <- extractVar s
+    output $ Binary (Var s' TInt) (Var s' TInt) (BAdd BPlus) (CInt 1)
     return False
 processStmt (Decr s) = do
-    output $ Binary (Var s TInt) (Var s TInt) (BAdd BMinus) (CInt 1)
+    s' <- extractVar s
+    output $ Binary (Var s' TInt) (Var s' TInt) (BAdd BMinus) (CInt 1)
     return False
 processStmt (Ret expr) = do
     tmp <- processExpr expr
@@ -109,6 +118,11 @@ processStmt (While expr stmt) = do
     output $ Label lEnd
     return False
 processStmt (SExp expr) = processExpr expr >> return False  -- ?
+
+extractVar :: Expr -> GenState String
+extractVar expr = case expr of
+    EVar i -> return i
+    _ -> undefined
 
 processItem :: Type -> Item -> GenState ()
 processItem t (NoInit s) = output $ Assign (Var s t) defVal

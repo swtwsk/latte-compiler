@@ -33,7 +33,7 @@ type TCState  = StateT StateMap (Except StateErr)
 type TCReader = ReaderT StateMap (Except StateErr)
 
 data TypeCheckResult = GoodChecked FAST.Program 
-                     | BadChecked (PosType, FrontendException ())
+                     | BadChecked StateErr
 
 instance Show TypeCheckResult where
     show (GoodChecked newAst) = show newAst
@@ -56,22 +56,72 @@ library = Map.fromList [ (printIntName, typeM $ fun voidT [int])
         string = Str ()
         voidT = Void ()
 
+data ClDef = ClDef { _methods :: Map.Map String TypeM
+                   , _fields  :: Map.Map String TypeU }
+type ClassMap = Map.Map String ClDef
+
 typeCheck :: Program PosType -> TypeCheckResult
-typeCheck p@(Program _ topdefs) = case Map.lookup "main" fundefs of
-    Nothing -> BadChecked (Nothing, NoMain)
-    Just mainType -> if _type mainType /= Fun () (Int ()) []
-        then BadChecked (Nothing, NoMain)
-        else either BadChecked (const good) $
-            runExcept (runReaderT (forM_ topdefs checkTopDef) fundefs)
+typeCheck p@(Program _ topdefs) = either BadChecked (const good) $ do
+    mapPair <- foldl' accumulateTopDefs seed topdefs
+    let (fundefs, classdefs) = mapPair
+    mainType <- maybe (throwError (Nothing, NoMain)) pure $ 
+        Map.lookup "main" fundefs
+    when (_type mainType /= Fun () (Int ()) []) (throwError (Nothing, NoMain))
+    runExcept (runReaderT (forM_ topdefs checkTopDef) fundefs)
     where good = GoodChecked $ TAST.transpile p
-          fundefs = foldl' insertFunDef library (map void topdefs)
-          insertFunDef acc (FnDef _ t (Ident i) args _) = 
-            let argTs = foldr (\(Arg _ at _) -> (void at :)) [] args
-                newT  = typeM $ Fun () t argTs
-            in Map.insert i newT acc
+          seed = pure (library, Map.empty)
+
+accumulateTopDefs :: 
+    Either StateErr (StateMap, ClassMap) -> 
+    TopDef PosType -> 
+    Either StateErr (StateMap, ClassMap)
+accumulateTopDefs l@(Left {}) _ = l
+accumulateTopDefs (Right (sm, cm)) topdef = case topdef of
+    (FnTopDef _ fndef) -> pure (Map.union (fromFnDef fndef) sm, cm)
+    (ClassDef _ (Ident i) decls) -> 
+        let cd  = fromClassDef (void <$> decls)
+            cm' = Map.union (Map.singleton i cd) cm
+        in pure (sm, cm')
+    (ClassExtDef pos (Ident i) (Ident ext) decls) -> do
+        extDef <- maybe (Left err) pure $ Map.lookup ext cm
+        let cd = fromClassDef (void <$> decls)
+            extMet = _methods extDef
+            extFld = _fields extDef
+            classMet = _methods cd
+            classFld = _fields cd
+            cd' = ClDef { _methods = Map.union classMet extMet
+                        , _fields  = Map.union classFld extFld }
+            cm' = Map.union (Map.singleton i cd') cm
+        pure (sm, cm')
+        where
+            err = (pos, NoExtension { _className = i, _expectedExt = ext })
+
+fromFnDef :: FnDef a -> Map.Map String TypeM
+fromFnDef (FnDef _ t (Ident i) args _) = 
+    let argTs = foldr (\(Arg _ at _) -> (void at :)) [] args
+        newT  = typeM $ Fun () (void t) argTs
+    in Map.singleton i newT
+
+fromClassDef :: [ClassDecl ()] -> ClDef
+fromClassDef decls = foldl' fromClassDecl emptyClassDef decls
+    where
+        fromClassDecl cdef (MethodDef _ fndef) =
+            let m  = _methods cdef
+                m' = Map.union (fromFnDef fndef) m
+            in cdef { _methods = m' }
+        fromClassDecl cdef (FieldDef _ t (Ident i)) =
+            let f  = _fields cdef
+                f' = Map.union (Map.singleton i t) f
+            in cdef { _fields = f' }
+        emptyClassDef = ClDef { _methods = Map.empty, _fields = Map.empty}
 
 checkTopDef :: TopDef PosType -> TCReader ()
-checkTopDef (FnDef pos t (Ident i) args block) = do
+checkTopDef (FnTopDef _ fndef) = checkFnDef fndef
+checkTopDef (ClassExtDef pos (Ident name) (Ident ext) cdls) = undefined
+checkTopDef (ClassDef pos (Ident name) cdls) = undefined
+
+checkFnDef :: FnDef PosType -> TCReader ()
+checkFnDef (FnDef pos t (Ident i) args block) = do
     foldM_ unique Set.empty $ fmap fst argsWithT
     newEnv <- asks (Map.union (Map.fromList argsWithT))
     bType <- either throwError return $ evalTCState (checkBlock block) newEnv
@@ -158,17 +208,17 @@ checkStmt (Decl pos t items) = do
                 else throwError (pos, ExprType { _expr = Right (void expr)
                                                , _expectedType = t'
                                                , _gotType = et })) err
-checkStmt (Ass pos (Ident i) expr) = do
-    iType <- lookupOrThrow i (pos, UndeclaredVar i)
-    exprType <- checkExpr expr
+checkStmt (Ass pos lvalue expr) = do
+    (_, iType) <- checkLValue lvalue
+    exprType   <- checkExpr expr
     when (exprType /= iType) $ throwError (err iType exprType)
     return [NoReturn]
     where
         err it et = (pos, ExprType { _expr = Right (void expr)
                                    , _expectedType = it
                                    , _gotType = et })
-checkStmt (Incr pos (Ident i)) = checkIncrExpr i pos
-checkStmt (Decr pos (Ident i)) = checkIncrExpr i pos
+checkStmt (Incr pos lvalue) = checkIncrExpr lvalue pos
+checkStmt (Decr pos lvalue) = checkIncrExpr lvalue pos
 checkStmt (Ret _ expr) = checkExpr expr >>= \t -> return [Return t]
 checkStmt (VRet _) = return . pure $ Return (Void ())
 checkStmt (Cond pos expr stmt) = checkOneBranchCond pos expr stmt
@@ -188,6 +238,7 @@ checkStmt (CondElse pos expr s1 s2) = do
             returnType NoReturn ConstantReturn ConstantReturn <$> rs2
 checkStmt (While pos expr stmt) = checkOneBranchCond pos expr stmt
 checkStmt (SExp _ expr) = checkExpr expr >> return [NoReturn]
+checkStmt (For _ t (Ident i) expr stmt) = undefined
 
 checkOneBranchCond pos expr stmt = do
     eType <- checkExpr expr
@@ -202,6 +253,12 @@ checkOneBranchCond pos expr stmt = do
             returnType NoReturn ConstantReturn ConstantReturn <$> retType
         Just False -> 
             returnType NoReturn Return Return <$> retType
+
+checkLValue :: Expr PosType -> TCState (String, TypeU)
+checkLValue e@(EVar _ (Ident i)) = checkExpr e >>= return . (,) i
+checkLValue e@(EArrGet {}) = undefined
+checkLValue e@(EFieldGet {}) = undefined
+checkLValue expr = throwError (extract expr, WrongLValue (void expr))
 
 checkExpr :: Expr PosType -> TCState TypeU
 checkExpr (EVar pos (Ident i)) = lookupOrThrow i (pos, UndeclaredVar i)
@@ -229,6 +286,18 @@ checkExpr (EApp pos (Ident i) exprs) = do
         checked = foldr (\e -> (foldF e :)) [] typedExprs
     either throwError (constReturn retType) (sequence checked)
 checkExpr (EString _ _) = justType Str
+checkExpr (EArr pos t expr) = do
+    exprType <- checkExpr expr
+    case exprType of
+        Int _ -> return $ Array () (void t)  -- TODO: check existence of t
+        _ -> throwError (pos, ExprType { _expr = Right (void expr)
+                                       , _expectedType = Int ()
+                                       , _gotType = exprType })
+checkExpr (EClass pos t) = undefined
+checkExpr (EArrGet pos expr1 expr2) = undefined  -- Because state does not have
+checkExpr (EFieldGet pos expr (Ident i)) = undefined
+checkExpr (EMethod pos expr (Ident i) exprs) = undefined
+checkExpr (ENull pos (Ident i)) = undefined
 checkExpr (Neg pos expr)  = do
     exprType <- checkExpr expr
     case exprType of
@@ -270,9 +339,9 @@ checkEQExpr e1 e2 pos = do
         (\_ -> throwError (pos, EqualityErr te1 te2))
     justType Bool
 
-checkIncrExpr :: String -> PosType -> TCState [ReturnTypeU]
-checkIncrExpr i pos = do
-    iType <- lookupOrThrow i (pos, UndeclaredVar i)
+checkIncrExpr :: Expr PosType -> PosType -> TCState [ReturnTypeU]
+checkIncrExpr lvalue pos = do
+    (i, iType) <- checkLValue lvalue
     when (iType /= Int ()) $ 
         throwError (pos, ExprType { _expr = Left i
                                   , _expectedType = Int ()

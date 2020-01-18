@@ -14,7 +14,12 @@ optimizeProg :: Program -> Program
 optimizeProg (Program topdefs) = Program $ fmap optimizeTopDef topdefs
 
 optimizeTopDef :: TopDef -> TopDef
-optimizeTopDef (FnDef t fname args block) =
+optimizeTopDef (FnTopDef fndef) = FnTopDef $ optimizeFnDef fndef
+optimizeTopDef (ClassExtDef i ext decls) = undefined
+optimizeTopDef (ClassDef i decls) = undefined
+
+optimizeFnDef :: FnDef -> FnDef
+optimizeFnDef (FnDef t fname args block) =
     FnDef t fname args $ case optimizeBlock block of
         Nothing -> Block [VRet]
         Just b@(Block stmts) ->

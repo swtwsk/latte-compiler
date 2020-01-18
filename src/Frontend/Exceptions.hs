@@ -32,6 +32,9 @@ data FrontendException a = NthArgument   { _index         :: Integer
                                          , _gotType2      :: Type a }
                          | CannotAdd     { _gotType1      :: Type a
                                          , _gotType2      :: Type a }
+                         | NoExtension   { _className     :: String 
+                                         , _expectedExt   :: String }
+                         | WrongLValue (Expr a)
                          | NoMain
                          | Unexpected
                          
@@ -70,6 +73,10 @@ instance Show (FrontendException a) where
         "Cannot check equality of types " ++ show t1 ++ " and " ++ show t2
     show (CannotAdd t1 t2) = "Cannot add/concat expressions of types " ++ 
                              show t1 ++ " and " ++ show t2
+    show (NoExtension cn expExt) = "Could not find base class " ++ show expExt
+        ++ " for class " ++ cn
+    show (WrongLValue expr) = 
+        show expr ++ " is not a l-value and cannot be assigned"
     show NoMain = "Undefined reference to `int main()`"
     show Unexpected = "Unexpected error"
 

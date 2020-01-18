@@ -1,4 +1,4 @@
-module Backend.TypeMapConstructor (typeTopDef) where
+module Backend.TypeMapConstructor (typeFnDef) where
 
 import qualified Data.Map as Map
 import Data.List (foldl')
@@ -7,8 +7,8 @@ import Frontend.AST
 
 type TypeMap = Map.Map String Type
 
-typeTopDef :: TopDef -> TypeMap
-typeTopDef (FnDef _ _ args block) =
+typeFnDef :: FnDef -> TypeMap
+typeFnDef (FnDef _ _ args block) =
     let argTypesMap = Map.fromList argsWithT 
         typedBlock  = typeBlock block
     in Map.union typedBlock argTypesMap
