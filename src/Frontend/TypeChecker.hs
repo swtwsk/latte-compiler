@@ -84,7 +84,8 @@ accumulateTopDefs (Right (sm, cm)) topdef = case topdef of
             classMet = _methods cd
             classFld = _fields cd
             cd' = ClDef { _methods = Map.union classMet extMet
-                        , _fields  = Map.union classFld extFld }
+                        , _fields  = Map.union classFld extFld
+                        , _extends = Just ext }
             cm' = Map.union (Map.singleton i cd') cm
         pure (sm, cm')
         where
@@ -107,7 +108,9 @@ fromClassDef decls = foldl' fromClassDecl emptyClassDef decls
             let f  = _fields cdef
                 f' = Map.union (Map.singleton i t) f
             in cdef { _fields = f' }
-        emptyClassDef = ClDef { _methods = Map.empty, _fields = Map.empty}
+        emptyClassDef = ClDef { _methods = Map.empty
+                              , _fields = Map.empty
+                              , _extends = Nothing }
 
 checkTopDef :: TopDef PosType -> TCReader ()
 checkTopDef (FnTopDef _ fndef) = checkFnDef fndef
@@ -125,7 +128,8 @@ extractClassFunc name = do
     classDef <- asks ((flip (Map.!) name) . (^. classes))
     let flds = Map.map typeM $ classDef ^. fields
         mtds = classDef ^. methods
-    return $ Map.union flds mtds
+    return $ 
+        Map.insert "self" (typeM $ Class () (Ident name)) (Map.union flds mtds)
 
 checkClassDecl :: ClassDecl PosType -> TCReader ()
 checkClassDecl (MethodDef _ fndef) = checkFnDef fndef
@@ -203,7 +207,7 @@ checkStmt (Decl pos t items) = do
     let foldF acc el = do
             i  <- extractIdent el
             v  <- gets (Map.lookup i . (^. funcs))
-            i' <- maybe (return i) (\jv -> if _outer jv 
+            maybe (return i) (\jv -> if _outer jv 
                 then return i else throwError (pos, Redefinition i)) v
             return $ (i, typeM t'):acc
     typedItems <- foldM foldF [] items
@@ -215,17 +219,19 @@ checkStmt (Decl pos t items) = do
         extractIdent :: Item PosType -> TCState String
         extractIdent (NoInit _ (Ident i)) = return i
         extractIdent (Init pos (Ident i) expr) = do
-            env <- get
-            let err = evalTCState (checkExpr expr) env
-            either throwError (\et -> if et == t' 
+            env   <- get
+            et    <- either throwError return $ evalTCState (checkExpr expr) env
+            isSub <- et `isSubtypeOf` t'
+            if isSub
                 then return i 
                 else throwError (pos, ExprType { _expr = Right (void expr)
                                                , _expectedType = t'
-                                               , _gotType = et })) err
+                                               , _gotType = et })
 checkStmt (Ass pos lvalue expr) = do
     iType    <- checkLValue lvalue
     exprType <- checkExpr expr
-    when (exprType /= iType) $ throwError (err iType exprType)
+    isSub    <- exprType `isSubtypeOf` iType
+    unless isSub $ throwError (err iType exprType)
     return [NoReturn]
     where
         err it et = (pos, ExprType { _expr = Right (void expr)
@@ -307,15 +313,14 @@ checkExpr (EApp pos (Ident i) exprs) = do
                                   , _gotCount = length exprs })
     env <- get
     let typedExprs = zip3 argTypes exprs [1..]
-        foldF (t, e, i') = do
-            t'  <- evalTCState (checkExpr e) env
-            if t == t' then Right ()
-            else Left (pos, NthArgument { _index = i'
-                                        , _function = i
-                                        , _expectedType = t
-                                        , _gotType = t' })
-        checked = foldr (\e -> (foldF e :)) [] typedExprs
-    either throwError (constReturn retType) (sequence checked)
+    forM_ typedExprs $ \(t, e, i') -> do
+        t' <- either throwError return $ evalTCState (checkExpr e) env
+        isSub <- t' `isSubtypeOf` t
+        unless isSub $ throwError (pos, NthArgument { _index = i'
+                                                    , _function = i
+                                                    , _expectedType = t
+                                                    , _gotType = t' })
+    return retType
 checkExpr (EString _ _) = justType Str
 checkExpr (EArr pos t expr) = do
     exprType <- checkExpr expr
@@ -327,7 +332,11 @@ checkExpr (EArr pos t expr) = do
         _ -> throwError (pos, ExprType { _expr = Right (void expr)
                                        , _expectedType = Int ()
                                        , _gotType = exprType })
-checkExpr (EClass pos t) = undefined
+checkExpr (EClass pos t) = do
+    types' <- gets (^. types)
+    let t' = void t
+    unless (Set.member t' types') (throwError (pos, TypeNotExists t'))
+    return t'
 checkExpr (EArrGet pos e1 e2) = do
     t1 <- checkExpr e1
     t2 <- checkExpr e2
@@ -350,9 +359,38 @@ checkExpr (EFieldGet pos expr (Ident i)) = do
             flds <- gets ((^. fields) . (flip (Map.!) name) . (^. classes))
             maybe (throwError (pos, UndeclaredFld i)) return $ Map.lookup i flds
         _ -> throwError (pos, ValueType te)
-checkExpr (EMethod pos expr (Ident i) exprs) = undefined
-checkExpr (ENull pos (Ident i)) = undefined
-checkExpr (Neg pos expr)  = do
+checkExpr (EMethod pos expr (Ident i) exprs) = do
+    eType <- checkExpr expr
+    methodType <- case eType of
+        Class _ (Ident name) -> do
+            mtds <- gets ((^. methods) . (flip (Map.!) name) . (^. classes))
+            maybe (throwError (pos, UndeclaredMet i)) (return . _type) $
+                Map.lookup i mtds
+        _ -> throwError (pos, ValueType eType)
+    (retType, argTypes) <- case methodType of
+        (Fun _ ret args) -> return (ret, args)
+        _ -> throwError (pos, NotAFunc i)
+    when (length argTypes /= length exprs) $ 
+        throwError (pos, ArgCount { _function = i
+                                  , _expectedCount = length argTypes
+                                  , _gotCount = length exprs })
+    env <- get
+    let typedExprs = zip3 argTypes exprs [1..]
+    forM_ typedExprs $ \(t, e, i') -> do
+        t' <- either throwError return $ evalTCState (checkExpr e) env
+        isSub <- t' `isSubtypeOf` t
+        unless isSub $ throwError (pos, NthArgument { _index = i'
+                                                    , _function = i
+                                                    , _expectedType = t
+                                                    , _gotType = t' })
+    return retType
+checkExpr (ENull pos (Ident i)) = do
+    types' <- gets (^. types)
+    let classType = Class () (Ident i)
+    if Set.member classType types'
+        then return classType
+        else throwError (pos, TypeNotExists classType)
+checkExpr (Neg pos expr) = do
     exprType <- checkExpr expr
     case exprType of
         Int _ -> justType Int
@@ -388,8 +426,9 @@ checkEQExpr :: Expr PosType -> Expr PosType -> PosType -> TCState TypeU
 checkEQExpr e1 e2 pos = do
     te1 <- checkExpr e1
     te2 <- checkExpr e2
-    (checkIntExpr e1 e2 pos `catchError` 
-        (\_ -> checkBoolExpr e1 e2 pos)) `catchError` 
+    ((checkIntExpr e1 e2 pos `catchError` 
+        (\_ -> checkBoolExpr e1 e2 pos)) `catchError`
+        (\_ -> checkClassTypeExpr e1 e2 pos)) `catchError`
         (\_ -> throwError (pos, EqualityErr te1 te2))
     justType Bool
 
@@ -419,6 +458,15 @@ checkTypedExpr t e1 e2 pos = do
                                      , _gotType1 = et1
                                      , _gotType2 = et2 })
 
+checkClassTypeExpr :: Expr PosType -> Expr PosType -> PosType -> TCState TypeU
+checkClassTypeExpr e1 e2 pos = do
+    et1 <- checkExpr e1
+    et2 <- checkExpr e2
+    case et1 of
+        c@(Class _ (Ident i)) -> 
+            unless (et1 == et2) (throwError (pos, EqualityErr et1 et2))
+        _ -> throwError (pos, ValueType et1)
+    return et1
 justType :: (() -> Type ()) -> TCState TypeU
 justType t = return $ t ()
 
@@ -430,12 +478,21 @@ lookupVarOrThrow k err = do
     v <- gets (Map.lookup k . (^. funcs))
     maybe (throwError err) (return . _type) v
 
-constReturn :: Monad m => a -> b -> m a
-constReturn x = const (return x)
-
 isProperType :: Set.Set TypeU -> TypeU -> Bool
 isProperType typeSet t = case t of
     Array _ ta -> isProperType typeSet ta
     c@(Class {}) -> Set.member c typeSet
     Pointer _ t' -> isProperType typeSet t'
     _ -> True
+
+isSubtypeOf :: TypeU -> TypeU -> TCState Bool
+(Class _ (Ident name1)) `isSubtypeOf` c2@(Class _ (Ident name2)) = 
+    if name1 == name2 then return True 
+    else do
+        ext' <- gets ((^. extends) . (flip (Map.!) name1) . (^. classes))
+        case ext' of
+            Nothing -> return False
+            Just n' -> if n' == name2 
+                then return True 
+                else (Class () (Ident n')) `isSubtypeOf` c2
+t1 `isSubtypeOf` t2 = return $ t1 == t2

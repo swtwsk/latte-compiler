@@ -17,7 +17,8 @@ type ReturnTypeU = ReturnType TypeU
 type FuncMap = Map.Map String TypeM
 
 data ClDef = ClDef { _methods :: FuncMap
-                   , _fields  :: Map.Map String TypeU }
+                   , _fields  :: Map.Map String TypeU
+                   , _extends :: Maybe String }
 type ClassMap = Map.Map String ClDef
 
 data StateTuple = StateTuple { _funcs   :: FuncMap
@@ -33,6 +34,9 @@ methods = lens _methods (\cldef newMeth -> cldef { _methods = newMeth })
 
 fields :: Lens' ClDef (Map.Map String TypeU)
 fields = lens _fields (\cldef newFld -> cldef { _fields = newFld })
+
+extends :: Lens' ClDef (Maybe String)
+extends = lens _extends (\cldef newMaybe -> cldef { _extends = newMaybe })
 
 funcs :: Lens' StateTuple FuncMap
 funcs = lens _funcs (\st newFuncs -> st { _funcs = newFuncs })
