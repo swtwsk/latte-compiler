@@ -1,6 +1,7 @@
 module Backend.Quadruples (
     Quadruple(..),
     Var(..),
+    FunName(..),
     OpBin(..),
     OpUn(..),
     OpAdd(..),
@@ -20,7 +21,7 @@ data Var = Var String Type
          | CString String
 
 type Label   = String
-type FunName = String
+data FunName = FunName String | MethodName String String
 
 data Quadruple = Binary Var Var OpBin Var
                | Unary Var OpUn Var
@@ -34,7 +35,11 @@ data Quadruple = Binary Var Var OpBin Var
                | FCall Var FunName Int
                | Param Var
                | Return (Maybe Var)
-            
+               | ArrSize Var Var      -- x := var.length
+               | ArrNew Var Type Var  -- x := new T[y]
+               | ArrLoad Var Var Var  -- x := y[z]
+               | ArrStore Var Var Var -- x[y] := y
+
 data OpBin = BAdd OpAdd | BMul OpMul | BRel OpRel | BLog OpLog
 data OpUn  = UMinus | UNot
 data OpAdd = BPlus | BMinus
@@ -55,7 +60,7 @@ instance Show Quadruple where
         show lvar ++ " := " ++ show a ++ " " ++ show op ++ " " ++ show b
     show (Unary lvar op b) = show lvar ++ " := " ++ show op ++ " " ++ show b
     show (FunHead t fname list) = "define " ++ show t ++
-        " " ++ fname ++ "(" ++ safeShowList list ++ "):"
+        " " ++ show fname ++ "(" ++ safeShowList list ++ "):"
     show (Label label) = showLabel label
     show (Assign lvar rvar) = show lvar ++ " := " ++ show rvar
     show (Goto glabel) = "goto " ++ glabel
@@ -63,11 +68,16 @@ instance Show Quadruple where
         "if " ++ show var ++ " goto " ++ ifLabel ++ " else " ++ elseLabel
     show (WhileJmp var ifLabel elseLabel) = 
         "while " ++ show var ++ " goto " ++ ifLabel ++ " else " ++ elseLabel
-    show (Call flabel i) = "call " ++ flabel ++ ", " ++ show i
+    show (Call flabel i) = "call " ++ show flabel ++ ", " ++ show i
     show (FCall lvar flabel i) = 
-        show lvar ++ " := " ++ "fcall " ++ flabel ++ ", " ++ show i
+        show lvar ++ " := " ++ "fcall " ++ show flabel ++ ", " ++ show i
     show (Param var) = "param " ++ show var
     show (Return var) = "return " ++ maybe "" show var
+    show (ArrSize v arr) = show v ++ " := getsize " ++ show arr
+    show (ArrNew v t i) = show v ++ " := newarray " ++ show t ++ ", " ++ show i
+    show (ArrLoad x y z) = show x ++ " := load " ++ show y ++ ", " ++ show z
+    show (ArrStore x y z) = 
+        "store " ++ show x ++ " [" ++ show y ++ "], " ++ show z
 
 instance Show Var where
     show (Var s _)   = s
@@ -75,6 +85,10 @@ instance Show Var where
     show (CInt i)    = show i
     show (CBool b)   = show b
     show (CString s) = '\"' : s ++ "\""
+
+instance Show FunName where
+    show (FunName s) = s
+    show (MethodName cn mn) = cn ++ "::" ++ mn
 
 instance Show OpBin where
     show op = case op of

@@ -30,13 +30,13 @@ toFuncDefs qs =
         blankState = SplitState { _locals = Set.empty
                                 , _fdefs  = [] }
 
-data FuncDef = FuncDef { _funName  :: String
+data FuncDef = FuncDef { _funName  :: FunName
                        , _funType  :: Type
                        , _funArgs  :: [Arg]
                        , _locCount :: Int
                        , _quads    :: [Quadruple] } deriving (Show)
 
-funName :: Lens' FuncDef String
+funName :: Lens' FuncDef FunName
 funName = lens _funName (\fdef newName -> fdef { _funName = newName })
 
 funType :: Lens' FuncDef Type

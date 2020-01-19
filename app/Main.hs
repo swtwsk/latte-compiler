@@ -2,7 +2,7 @@
 module Main where
 
 import System.Process
-import System.IO ( stdin, hGetContents, hPutStr, hPutStrLn, stderr )
+import System.IO ( stdin, putStrLn, hGetContents, hPutStr, hPutStrLn, stderr )
 import System.Environment ( getArgs, getProgName )
 import System.Exit ( exitFailure, exitSuccess )
 import System.FilePath (takeBaseName, takeDirectory, dropExtension)
@@ -64,18 +64,20 @@ saveCompiled :: FileName -> String -> IO ()
 saveCompiled filename compiled = do
     let asm = dropExtension filename ++ ".s"
     writeFile asm compiled
-    readProcess "./compileAsm.sh" [asm] ""
+    _ <- readProcess "./compileAsm.sh" [asm] ""
     return ()
 
-parseFile :: FileName -> IO ()
-parseFile filename = do
+parseFile :: Bool -> FileName -> IO ()
+parseFile showQuads filename = do
     file <- readFile filename
     parseRes <- run pProgram file
     case parseRes of
         Nothing -> exitFailure
         Just toComp -> do
-            let compiled = compile False toComp
-            saveCompiled filename compiled
+            let compiled = compile showQuads toComp
+            if showQuads 
+                then putStrLn compiled 
+                else saveCompiled filename compiled
             exitSuccess
 
 main :: IO ()
@@ -84,4 +86,5 @@ main = do
     case args of
         []         -> usage
         ["--help"] -> usage
-        fs         -> mapM_ parseFile fs
+        "-q":fs    -> mapM_ (parseFile True) fs
+        fs         -> mapM_ (parseFile False) fs

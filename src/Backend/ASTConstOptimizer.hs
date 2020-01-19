@@ -14,9 +14,13 @@ optimizeProg :: Program -> Program
 optimizeProg (Program topdefs) = Program $ fmap optimizeTopDef topdefs
 
 optimizeTopDef :: TopDef -> TopDef
-optimizeTopDef (FnTopDef fndef) = FnTopDef $ optimizeFnDef fndef
-optimizeTopDef (ClassExtDef i ext decls) = undefined
-optimizeTopDef (ClassDef i decls) = undefined
+optimizeTopDef topdef = case topdef of
+    FnTopDef fndef -> FnTopDef $ optimizeFnDef fndef
+    ClassExtDef i ext decls -> ClassExtDef i ext (processDecl <$> decls)
+    ClassDef i decls -> ClassDef i (processDecl <$> decls)
+    where
+        processDecl (MethodDef fndef) = MethodDef (optimizeFnDef fndef)
+        processDecl fd@(FieldDef {})  = fd
 
 optimizeFnDef :: FnDef -> FnDef
 optimizeFnDef (FnDef t fname args block) =
@@ -40,7 +44,8 @@ optimizeBlock (Block stmts) =
 optimizeStmt :: Stmt -> Maybe Stmt
 optimizeStmt stmt = case stmt of
     BStmt block -> optimizeBlock block >>= pure . BStmt
-    Ass x expr -> pure $ Ass x (exprToConstLit expr)
+    Ass x expr -> pure $ 
+        Ass (eitherToExpr . optimizeExpr $ x) (exprToConstLit expr)
     Ret expr -> pure $ Ret (exprToConstLit expr)
     Cond expr stmt -> optimizeOneBranchCond expr stmt Cond
     While expr stmt -> optimizeOneBranchCond expr stmt While
@@ -53,6 +58,10 @@ optimizeStmt stmt = case stmt of
         Just b  -> 
             if b then optimizeStmt st1 else optimizeStmt st2
     SExp expr -> pure . SExp . eitherToExpr . optimizeExpr $ expr
+    For t s expr stmt -> do
+        expr' <- pure . eitherToExpr $ optimizeExpr expr
+        stmt' <- optimizeStmt stmt
+        pure $ For t s expr' stmt'
     -- Empty, Decl, Incr, Decr, VRet
     x -> pure x
 
@@ -70,7 +79,11 @@ optimizeExpr e = case e of
     ELitInt i -> Right $ CInt i
     ELitTrue -> Right $ CBool True
     ELitFalse -> Right $ CBool False
-    EApp s exprs -> Left (EApp s $ eitherToExpr . optimizeExpr <$> exprs)
+    EApp s exprs  -> Left (EApp s $ eitherOptimize <$> exprs)
+    EArr t expr   -> Left (EArr t $ eitherOptimize expr)
+    EArrGet e1 e2 -> Left (EArrGet (eitherOptimize e1) (eitherOptimize e2))
+    EFieldGet e s -> Left (EFieldGet (eitherOptimize e) s)
+    EMethod e s f -> Left (EMethod (eitherOptimize e) s (eitherOptimize <$> f))
     Neg e -> case optimizeExpr e of
         Right (CInt i) -> Right (CInt (-i))
         Right r -> Left $ Neg (constToLit r)
@@ -142,6 +155,8 @@ optimizeExpr e = case e of
         (Left a, Right b)  -> Left (EOr a (constToLit b))
         (Left a, Left b)   -> Left (EOr a b)
     x -> Left x
+    where
+        eitherOptimize expr = eitherToExpr (optimizeExpr expr)
 
 optimizeBoolExpr :: 
     Expr -> 

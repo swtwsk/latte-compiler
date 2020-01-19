@@ -82,14 +82,15 @@ rodata = ("section .rodata" :) . map f . Map.toList
 processFuncDef :: FuncDef -> GenerateM ()
 processFuncDef fdef = do
     modify clearFuncState
-    printProlog (fdef^.funName) (fdef^.locCount) onlyReturn
+    printProlog (show $ fdef^.funName) (fdef^.locCount) onlyReturn
     forM_ (fdef^.quads) (local (const newReader) . printQuadruple)
-    printEpilog (fdef^.funName) (fdef^.locCount) onlyReturn
+    printEpilog (show $ fdef^.funName) (fdef^.locCount) onlyReturn
     where
         onlyReturn = case fdef^.quads of
             [Return Nothing] -> True
             _ -> False
-        newReader = ReaderEnv { _argsLoc = argsMap, _fname = fdef^.funName }
+        newReader = ReaderEnv { _argsLoc = argsMap
+                              , _fname   = show $ fdef^.funName }
         argsMap = Map.fromList . snd $ foldl' foldFun (2, []) (fdef^.funArgs)
             where
                 foldFun (i, l) (Arg _ s) = (i + 1, (s,i):l)
@@ -144,10 +145,10 @@ printQuadruple (WhileJmp var whileLabel _) = do
     output $ Test addr addr
     output $ JmpMnem NonEq whileLabel
 printQuadruple (Call flabel i) = do
-    output $ AsmCall flabel
+    output $ AsmCall (show flabel)
     when (i > 0) $ output (Add esp (Const $ addrSize i))
 printQuadruple (FCall lvar flabel i) = do
-    output $ AsmCall flabel
+    output $ AsmCall (show flabel)
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
     when (i > 0) $ output (Add esp (Const $ addrSize i))
@@ -333,9 +334,9 @@ isPower2 n = n .&. (n-1) == 0
 output :: AsmCommand -> GenerateM ()
 output = tell . singleton
 
-removeUnnecessaryJumps :: [String] -> [AsmCommand] -> [AsmCommand]
+removeUnnecessaryJumps :: [FunName] -> [AsmCommand] -> [AsmCommand]
 removeUnnecessaryJumps funNames cmds = 
-    let initialSet = Set.fromList funNames
+    let initialSet = Set.fromList $ show <$> funNames
         (newCmds, labelsMap) = removeUnnecessaryJumps' ([], initialSet) cmds
     in removeUnnecessaryLabels [] labelsMap newCmds
 

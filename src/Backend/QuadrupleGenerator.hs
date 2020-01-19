@@ -13,7 +13,8 @@ import Backend.Quadruples
 import Globals
 
 data ReaderEnv = ReaderEnv { _funs      :: Map.Map String Type
-                           , _varTypes  :: Map.Map String Type }
+                           , _varTypes  :: Map.Map String Type
+                           , _className :: Maybe String }
 data StateEnv  = StateEnv  { _varSupply :: [String]
                            , _nextLabel :: Int }
 type WrtList   = DList Quadruple
@@ -33,10 +34,11 @@ generate prog@(Program topdefs) = toList wrtList
     where
         (_, wrtList) = evalRWS (processProg prog) initReader initState
 
-        initReader = ReaderEnv { _funs     = funcMap `Map.union` library
-                               , _varTypes = Map.empty }
-        initState  = StateEnv { _varSupply = supp
-                              , _nextLabel = 0 }
+        initReader = ReaderEnv { _funs      = funcMap `Map.union` library
+                               , _varTypes  = Map.empty
+                               , _className = Nothing }
+        initState  = StateEnv  { _varSupply = supp
+                               , _nextLabel = 0 }
 
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
         funcMap = Map.fromList $ map (\(FnTopDef (FnDef v k _ _)) -> (k, v)) $
@@ -52,7 +54,11 @@ processTopDef (ClassDef i decls) = undefined
 
 processFnDef :: FnDef -> GenState ()
 processFnDef fndef@(FnDef t name args block) = do
-    output (FunHead t name args)
+    className <- asks _className
+    let name' = case className of
+            Just cn -> MethodName cn name
+            Nothing -> FunName name
+    output (FunHead t name' args)
     let varTypesMap = typeFnDef fndef
     local (\r -> r { _varTypes = varTypesMap }) $ processBlock block
     return ()
@@ -68,17 +74,16 @@ processStmt (BStmt block) = processBlock block
 processStmt (Decl t items) = forM_ items (processItem t) >> return False
 processStmt (Ass s expr) = do
     tmp <- processExpr expr
-    s' <- extractVar s
-    output $ Assign (Var s' (varType tmp)) tmp
+    case s of
+        EVar i -> output $ Assign (Var i (varType tmp)) tmp
+        EArrGet e1 e2 -> do
+            e1' <- processExpr e1
+            e2' <- processExpr e2
+            output $ ArrStore e1' e2' tmp
+        EFieldGet e1 field -> undefined
     return False
-processStmt (Incr s) = do
-    s' <- extractVar s
-    output $ Binary (Var s' TInt) (Var s' TInt) (BAdd BPlus) (CInt 1)
-    return False
-processStmt (Decr s) = do
-    s' <- extractVar s
-    output $ Binary (Var s' TInt) (Var s' TInt) (BAdd BMinus) (CInt 1)
-    return False
+processStmt (Incr s) = processIncrStmt s (BAdd BPlus)
+processStmt (Decr s) = processIncrStmt s (BAdd BMinus)
 processStmt (Ret expr) = do
     tmp <- processExpr expr
     output (Return $ Just tmp) >> return True
@@ -118,11 +123,38 @@ processStmt (While expr stmt) = do
     output $ Label lEnd
     return False
 processStmt (SExp expr) = processExpr expr >> return False  -- ?
+processStmt (For t vn expr stmt) = do
+    Temp temp _ <- nextVar TInt
+    processStmt (Decl TInt [Init temp (ELitInt 0)])
+    let tempVar = EVar temp
+        whileExpr = ERel tempVar LTH (EFieldGet expr "length")
+        vnDecl = Decl t [Init vn (EArrGet expr tempVar)]
+        incr   = Incr tempVar
+        whileStmt = case stmt of
+            BStmt (Block stmts) -> BStmt . Block $ vnDecl : stmts ++ [incr]
+            stmt -> BStmt $ Block [vnDecl, stmt, incr]
+    processStmt (While whileExpr whileStmt)
 
-extractVar :: Expr -> GenState String
-extractVar expr = case expr of
-    EVar i -> return i
-    _ -> undefined
+processIncrStmt :: Expr -> OpBin -> GenState Bool
+processIncrStmt (EVar i) op = do
+    output $ Binary (Var i TInt) (Var i TInt) op (CInt 1)
+    return False
+processIncrStmt e@(EArrGet e1 e2) op = do
+    e1' <- processExpr e1
+    e2' <- processExpr e2
+    let TArray t = varType e1'
+    tmp <- nextVar t
+    output $ ArrLoad tmp e1' e2'
+    output $ Binary tmp tmp op (CInt 1)
+    output $ ArrStore e1' e2' tmp
+    return False
+processIncrStmt (EFieldGet e1 field) op = undefined
+-- extractVar :: Expr -> GenState String
+-- extractVar expr = case expr of
+--     EVar i -> return i
+--     EArrGet e1 e2 -> undefined
+--     EFieldGet e1 field -> undefined
+--     _ -> undefined
 
 processItem :: Type -> Item -> GenState ()
 processItem t (NoInit s) = output $ Assign (Var s t) defVal
@@ -148,7 +180,8 @@ processExpr (EApp fname exprs) = do
     forM_ (reverse elist') (output . Param)
     ftype <- asks $ flip (Map.!) fname . _funs
     t <- nextVar ftype
-    output $ (if ftype == TVoid then Call else FCall t) fname (length elist)
+    let fname' = FunName fname
+    output $ (if ftype == TVoid then Call else FCall t) fname' (length elist)
     return t
     where
         constToTemp :: Var -> GenState Var
@@ -163,6 +196,30 @@ processExpr (EString s) = return . CString . strip $ s
         strip = lstrip . rstrip
         lstrip = dropWhile (== '\"')
         rstrip = reverse . lstrip . reverse
+processExpr (EArr t expr) = do
+    expr' <- processExpr expr
+    tmp   <- nextVar t
+    output $ ArrNew tmp t expr'
+    return tmp
+processExpr (EClass t) = undefined
+processExpr (EArrGet e1 e2) = do
+    e1' <- processExpr e1
+    e2' <- processExpr e2
+    let TArray t = varType e1'
+    tmp <- nextVar t
+    output $ ArrLoad tmp e1' e2'
+    return tmp
+processExpr (EFieldGet e s) = do
+    e' <- processExpr e
+    t' <- case e' of
+            Var _ t@(TArray _) -> return t
+            Temp _ t@(TArray _) -> return t
+            _ -> undefined
+    tmp <- nextVar t'
+    output $ ArrSize tmp e'
+    return tmp
+processExpr (EMethod e s exprs) = undefined
+processExpr (ENull s) = undefined
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
 processExpr (EMul e1 op e2) = processBinExpr e1 e2 (BMul $ getOp op)
