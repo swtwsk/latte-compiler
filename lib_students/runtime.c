@@ -74,6 +74,6 @@ extern void *__allocArray(unsigned int length, unsigned int typeSize) {
     return result;
 }
 
-extern void *__allocClass(uint32_t length) {
+extern void *__allocClass(unsigned int length) {
     return calloc(length, 4);
 }
