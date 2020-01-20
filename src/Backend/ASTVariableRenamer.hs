@@ -65,11 +65,12 @@ processStmt (While expr stmt) = processCond While expr stmt
 processStmt (SExp expr) = fmap SExp (processExpr expr)
 processStmt (For t vname expr stmt) = do
     expr' <- processExpr expr
-    env   <- gets $ Map.insert vname vname
+    vname' <- processItemVar vname
+    env   <- gets $ Map.insert vname vname'
     supp  <- getSupply
     let (res, newSupp) = runRename (processStmt stmt) env supp
     putSupply newSupp
-    return $ For t vname expr' res
+    return $ For t vname' expr' res
 
 processItem :: Item -> RenameState Item
 processItem (NoInit s) = fmap NoInit (processItemVar s)

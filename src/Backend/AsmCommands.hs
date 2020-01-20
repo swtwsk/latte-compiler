@@ -17,6 +17,8 @@ printAsmCommand cmd = case cmd of
     c -> indent . show $ c
 
 data AsmCommand = Mov Memory Memory
+                | MovAdd Memory (Memory, Memory)
+                | LeaAdd Memory (Memory, Int, Memory)
                 | Add Memory Memory
                 | Sub Memory Memory
                 | IMul Memory Memory
@@ -42,7 +44,7 @@ data AsmCommand = Mov Memory Memory
 
 type StackOffset = Int
 type IsValue   = Bool
-data Memory = Register Register RegBitPart 
+data Memory = Register Register RegBitPart IsValue
             | Stack (Maybe DataSize) StackOffset IsValue
             | Data (Maybe DataSize) String IsValue
             | Const Int
@@ -76,19 +78,23 @@ instance Show AsmCommand where
     show (Set rel m)   = "set" ++ show rel ++ " " ++ show m
     show Cdq           = "cdq"
     show Ret           = "ret"
+    show (MovAdd m1 (m2, m3)) = "mov " ++ show m1 ++ ", [" ++ 
+        show m2 ++ " + " ++ show m3 ++ "]"
+    show (LeaAdd m1 (m2, mlt, m3)) = "lea " ++ show m1 ++ ", [" ++ 
+        show m2 ++ " + " ++ show mlt ++ " * " ++ show m3 ++ "]"
 
 instance Show Memory where
-    show (Register reg bitPart) = maybe "!NoReg!" id $ getRegBitName reg bitPart
-    show (Stack dataSize offset isVal) = maybe "" ((++ " ") . show) dataSize ++ 
-        valGetter ("ebp" ++ (if offset < 0 then " - " else " + ") ++ 
-        show (abs offset))
+    show mem = case mem of
+        Register reg bitPart isVal -> maybe "!NoReg!" (valGetter isVal) $
+            (getRegBitName reg bitPart)
+        Stack dataSize offset isVal -> maybe "" ((++ " ") . show) dataSize ++ 
+            valGetter isVal ("ebp" ++ (if offset < 0 then " - " else " + ") ++ 
+            show (abs offset))
+        Data dataSize dataName isVal -> maybe "" show dataSize ++
+            valGetter isVal dataName
+        Const i -> show i
         where
-            valGetter = if isVal then getValue else id
-    show (Data dataSize dataName isVal) = maybe "" show dataSize ++ 
-        valGetter dataName
-        where
-            valGetter = if isVal then getValue else id
-    show (Const i) = show i
+            valGetter isVal = if isVal then getValue else id
 
 instance Show RelMnemonic where
     show mnemonic = case mnemonic of

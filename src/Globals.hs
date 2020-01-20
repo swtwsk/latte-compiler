@@ -6,7 +6,8 @@ externFuncList = [ printIntName
                  , errorName
                  , readIntName
                  , readStringName
-                 , concatStringName ]
+                 , concatStringName
+                 , arrayAlloc ]
 
 printIntName :: String
 printIntName = "printInt"
@@ -25,3 +26,6 @@ readStringName = "readString"
 
 concatStringName :: String
 concatStringName = "__concatString"
+
+arrayAlloc :: String
+arrayAlloc = "__allocArray"

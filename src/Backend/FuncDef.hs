@@ -84,6 +84,8 @@ processQuadruple q@(Binary left _ _ _) = processAssigningQuadruple q left
 processQuadruple q@(Unary left _ _)    = processAssigningQuadruple q left
 processQuadruple q@(Assign left _)     = processAssigningQuadruple q left
 processQuadruple q@(FCall left _ _)    = processAssigningQuadruple q left
+processQuadruple q@(ArrSize left _)    = processAssigningQuadruple q left
+processQuadruple q@(ArrLoad left _ _)  = processAssigningQuadruple q left
 processQuadruple q                     = modify (over (current . quads) (q:))
 
 processAssigningQuadruple :: Quadruple -> Var -> State SplitState ()

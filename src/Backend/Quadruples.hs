@@ -36,7 +36,7 @@ data Quadruple = Binary Var Var OpBin Var
                | Param Var
                | Return (Maybe Var)
                | ArrSize Var Var      -- x := var.length
-               | ArrNew Var Type Var  -- x := new T[y]
+               -- ArrNew Var Type Var  -- x := new T[y]
                | ArrLoad Var Var Var  -- x := y[z]
                | ArrStore Var Var Var -- x[y] := y
 
@@ -74,7 +74,7 @@ instance Show Quadruple where
     show (Param var) = "param " ++ show var
     show (Return var) = "return " ++ maybe "" show var
     show (ArrSize v arr) = show v ++ " := getsize " ++ show arr
-    show (ArrNew v t i) = show v ++ " := newarray " ++ show t ++ ", " ++ show i
+    -- show (ArrNew v t i) = show v ++ " := newarray " ++ show t ++ ", " ++ show i
     show (ArrLoad x y z) = show x ++ " := load " ++ show y ++ ", " ++ show z
     show (ArrStore x y z) = 
         "store " ++ show x ++ " [" ++ show y ++ "], " ++ show z

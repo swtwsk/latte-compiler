@@ -99,9 +99,9 @@ printProlog :: String -> Int -> Bool -> GenerateM ()
 printProlog fname lCount onlyReturn = do
     -- when (fname == "main") (output $ "_start:")
     output $ AsmLabel fname
-    unless onlyReturn $ output (Push (Register EBP Lower32))
+    unless onlyReturn $ output (Push (Register EBP Lower32 False))
     unless onlyReturn $ 
-        output (Mov (Register EBP Lower32) esp)
+        output (Mov (Register EBP Lower32 False) esp)
     when (not onlyReturn && lCount > 0) $
         output (Sub esp (Const $ addrSize lCount))
 
@@ -110,7 +110,7 @@ printEpilog fname lCount onlyReturn = do
     output (AsmLabel $ attachEnd fname)  -- TODO: optimize it!
     when (not onlyReturn && lCount > 0) $ 
         output (Add esp (Const $ addrSize lCount))
-    unless onlyReturn $ output (Pop (Register EBP Lower32))
+    unless onlyReturn $ output (Pop (Register EBP Lower32 False))
     output Ret
 
 attachEnd :: String -> String
@@ -164,6 +164,39 @@ printQuadruple (Return var) = do
         Nothing -> return ()
     fname <- asks _fname
     output $ Jmp (attachEnd fname)
+printQuadruple (ArrSize lvar arr) = do
+    arrAddr <- getAddrOrValue arr False
+    output $ Mov eax arrAddr
+    output $ Mov eax (Register EAX Lower32 True)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+-- printQuadruple (ArrNew lvar t size) = do
+--     output $ Mov eax (Const 4)
+--     output $ Push eax
+--     sizeAddr <- getAddrOrValue size False
+--     output $ Mov eax sizeAddr
+--     output $ Push eax
+--     output $ AsmCall arrayAlloc
+--     output (Add esp (Const $ addrSize 2))
+--     lAddr <- getAddrOrValue lvar False
+--     output $ Mov lAddr eax
+printQuadruple (ArrLoad lvar arr i) = do
+    arrAddr <- getAddrOrValue arr False
+    output $ Mov eax arrAddr
+    output $ MovAdd eax (eax, Const 4)
+    iAddr <- getAddrOrValue i True
+    output $ LeaAdd eax (eax, 4, iAddr)
+    output $ Mov eax (Register EAX Lower32 True)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+printQuadruple (ArrStore larr i rvar) = do
+    arrAddr <- getAddrOrValue larr False
+    output $ Mov eax arrAddr
+    output $ MovAdd eax (eax, Const 4)  -- eax = *array
+    iAddr <- getAddrOrValue i True
+    output $ LeaAdd eax (eax, 4, iAddr)  -- eax = array[i]
+    lAddr <- getAddrOrValue rvar True -- edx
+    output $ Mov (Register EAX Lower32 True) lAddr
 
 processBinary :: Var -> Var -> OpBin -> Var -> GenerateM ()
 processBinary lvar a (BAdd op) b = processAddBinary lvar a op' b
@@ -176,13 +209,13 @@ processBinary lvar a (BMul op) b = case (a, b) of
     (_, CInt i) -> multiplyConstant lvar a op (fromIntegral i)
     _ -> multiply lvar a op b
 processBinary lvar a (BRel op) b = do
-    let ecx = Register ECX Lower32
+    let ecx = Register ECX Lower32 False
     output $ Xor eax eax
     aAddr <- getAddrOrValue a False
     output $ Mov ecx aAddr
     bAddr <- getAddrOrValue b False
     output $ Cmp ecx bAddr
-    output $ Set setMnemo (Register EAX Lower8)
+    output $ Set setMnemo (Register EAX Lower8 False)
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
     where
@@ -218,7 +251,7 @@ multiplyConstant lvar var BTimes cst = do
     vAddr <- getAddrOrValue var False
     output $ Mov eax vAddr
     output $ if isPower2 cst 
-        then Sar eax (Const $ cst `div` 2) 
+        then Sal eax (Const $ cst `div` 2) 
         else IMul eax (Const cst)
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
@@ -315,13 +348,13 @@ addrSize :: Int -> Int
 addrSize = (4 *)
 
 eax :: Memory
-eax = Register EAX Lower32
+eax = Register EAX Lower32 False
 
 edx :: Memory
-edx = Register EDX Lower32
+edx = Register EDX Lower32 False
 
 esp :: Memory
-esp = Register ESP Lower32
+esp = Register ESP Lower32 False
 
 -- courtesy of https://stackoverflow.com/a/12131896
 swap1_3 :: (a -> b -> c -> d) -> (b -> c -> a -> d)

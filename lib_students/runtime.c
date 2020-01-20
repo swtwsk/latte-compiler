@@ -6,6 +6,7 @@ extern int getchar(void);
 extern void exit(int status);
 extern size_t strlen(const char *s);
 extern void *malloc(size_t size);
+extern void *calloc(size_t nmeb, size_t size);
 extern void *realloc(void *ptr, size_t size);
 extern char *strcpy (char* strTo, const char* strFrom);
 char *strcat (char* strTo, const char* strFrom);
@@ -58,5 +59,17 @@ extern string __concatString(string s1, string s2) {
     char *result = malloc(strlen(s1) + strlen(s2) + 1);
     strcpy(result, s1);
     strcat(result, s2);
+    return result;
+}
+
+typedef struct Array {
+    unsigned int length;
+    void *array;
+} Array;
+
+extern void *__allocArray(unsigned int length, unsigned int typeSize) {
+    Array *result = malloc(sizeof(Array));
+    result->array = calloc(length, typeSize);
+    result->length = length;
     return result;
 }

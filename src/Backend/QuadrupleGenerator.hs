@@ -199,7 +199,10 @@ processExpr (EString s) = return . CString . strip $ s
 processExpr (EArr t expr) = do
     expr' <- processExpr expr
     tmp   <- nextVar t
-    output $ ArrNew tmp t expr'
+    newFs <- asks $ Map.insert arrayAlloc t . _funs
+    app'  <- local (\r -> r { _funs = newFs }) $
+        processExpr (EApp arrayAlloc [varToExpr expr', ELitInt 4])
+    output $ Assign tmp app'
     return tmp
 processExpr (EClass t) = undefined
 processExpr (EArrGet e1 e2) = do
@@ -295,13 +298,14 @@ processAddExpr e1 e2 = do
         TStr -> processExpr (EApp concatStringName 
             [varToExpr a1, varToExpr a2]) >>= (output . Assign t)
     return t
-    where
-        varToExpr v = case v of
-            Var s _ -> EVar s
-            Temp s _ -> EVar s
-            CInt i -> ELitInt i 
-            CBool b -> if b then ELitTrue else ELitFalse 
-            CString s -> EString s
+
+varToExpr :: Var -> Expr
+varToExpr v = case v of
+    Var s _ -> EVar s
+    Temp s _ -> EVar s
+    CInt i -> ELitInt i 
+    CBool b -> if b then ELitTrue else ELitFalse 
+    CString s -> EString s        
 
 -- helper functions
 output :: Quadruple -> GenState ()
