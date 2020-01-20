@@ -97,7 +97,6 @@ processFuncDef fdef = do
 
 printProlog :: String -> Int -> Bool -> GenerateM ()
 printProlog fname lCount onlyReturn = do
-    -- when (fname == "main") (output $ "_start:")
     output $ AsmLabel fname
     unless onlyReturn $ output (Push (Register EBP Lower32 False))
     unless onlyReturn $ 
@@ -395,9 +394,6 @@ removeUnnecessaryJumps' (cl, s) (j@(Jmp l):t) =
     removeUnnecessaryJumps' (j:cl, Set.insert l s) t
 removeUnnecessaryJumps' (cl, s) (j@(JmpMnem _ l):t) =
     removeUnnecessaryJumps' (j:cl, Set.insert l s) t
-        -- newMap = case Map.lookup l m of
-        --     Just x -> Map.insert l (x + 1) m
-        --     Nothing -> Map.insert l 1 m
 removeUnnecessaryJumps' (cl, s) (h:t) = removeUnnecessaryJumps' (h:cl, s) t
 
 removeUnnecessaryLabels :: [AsmCommand] -> Set.Set String -> [AsmCommand]

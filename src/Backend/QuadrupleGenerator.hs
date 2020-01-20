@@ -246,14 +246,6 @@ processExpr :: Expr -> GenState Var
 processExpr (EVar i) = do
     t <- asks (flip (Map.!) i . _varTypes) 
     return $ Var i t
-    -- varTypes <- asks _varTypes
-    -- maybeCname <- asks _className
-    -- case (Map.lookup i varTypes, maybeCname) of
-    --     (Just t, _) -> return $ Var i t
-    --     (Nothing, Just cname) -> do
-    --         -- flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
-    --         processExpr (EFieldGet (EVar "self") i)
-    --     _ -> undefined
 processExpr (ELitInt i) = return $ CInt i
 processExpr ELitTrue = return $ CBool True
 processExpr ELitFalse = return $ CBool False
@@ -309,14 +301,8 @@ processExpr (EMethod e mname exprs) = do
     forM_ (reverse elist') (output . Param)
     let TClass cname = varType e'
     classes <- asks _classes
-    -- let mtds = case Map.lookup cname classes of
-    --         Just cls -> cls^.methods
-    --         Nothing -> undefined
     mtds <- asks $ (^.methods) . flip (Map.!) cname . _classes
     let (mtd, ftype) = mtds Map.! mname
-    -- (mtd, ftype) <- case Map.lookup mname mtds of
-    --         Just pair -> return pair
-    --         Nothing -> return (FunName $ show (cname, mname), TVoid)
     t <- nextVar ftype
     output $ (if ftype == TVoid then Call else FCall t) mtd (length elist')
     return t

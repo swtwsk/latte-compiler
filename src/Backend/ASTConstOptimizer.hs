@@ -73,7 +73,6 @@ optimizeOneBranchCond expr stmt ctr = case evaluateBool expr of
         pure $ ctr e s
     Just b  -> if b then optimizeStmt stmt else Nothing
 
--- TODO: OPTIMIZE ADD/MUL AS IT IS COMMUTATIVE
 optimizeExpr :: Expr -> Either Expr CVal
 optimizeExpr e = case e of
     ELitInt i -> Right $ CInt i

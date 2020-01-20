@@ -2,11 +2,20 @@
 
 Andrzej Swatowski, as386085
 
-Pierwsza wersja kompilatora języka Latte, napisanego w Haskellu
+Druga wersja kompilatora języka Latte, napisanego w Haskellu
 
-W pierwszej wersji kompilatora nie umieściłem żadnych rozszerzeń. Kompilator 
-wylicza i optymalizuje stałe na poziomie drzewa składni abstrakcyjnej, tłumaczy 
-AST na kod czwórkowy oraz generuje kod asemblera w wersji 32-bitowej.
+Kompilator wylicza i optymalizuje stałe na poziomie drzewa składni 
+abstrakcyjnej, tłumaczy AST na kod czwórkowy oraz generuje kod asemblera 
+w wersji 32-bitowej.
+
+## Rozszerzenia
+Druga wersja ma zaimplementowane rozszerzenia:
+- tablice,
+- struktury,
+- obiekty (bez metod wirtualnych).
+
+Prócz tego następuje optymalizacja stałych na poziomie drzewa składni
+abstrakcyjnej.
 
 ## Projekt
 ### Uruchomienie
@@ -51,7 +60,7 @@ Rozwiązanie wykorzystuje biblioteki:
 - containers
 - ansi-terminal
 - dlist
-- lens
+- ~~lens~~ microlens-platform (zmiana zmniejsza liczbę pobieranych plików)
 - integer-logarithms
 - system-filepath
 - filepath
