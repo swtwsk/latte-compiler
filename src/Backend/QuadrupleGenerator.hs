@@ -5,7 +5,10 @@ import Control.Monad.Identity
 
 import Data.DList (DList, singleton, toList)
 import Data.List (foldl')
+import Control.Lens (Lens', lens, (^.), over)
 import qualified Data.Map as Map
+
+import qualified Data.Graph as Graph
 
 import Frontend.AST
 import Backend.TypeMapConstructor
@@ -22,8 +25,11 @@ type WrtList   = DList Quadruple
 
 type GenState = RWS ReaderEnv WrtList StateEnv
 
-type FieldMap  = Map.Map String Int
-type ClassMap  = Map.Map String FieldMap
+type FieldMap  = Map.Map String (Int, Type)
+type MethodMap = Map.Map String (FunName, Type)
+data ClassData = ClassData { _fields  :: FieldMap
+                           , _methods :: MethodMap }
+type ClassMap  = Map.Map String ClassData
 
 library :: Map.Map String Type
 library = Map.fromList [ ("printInt", TVoid)
@@ -56,31 +62,62 @@ generate prog@(Program topdefs) = toList wrtList
         funcMap = Map.fromList $ 
             map (\(FnTopDef (FnDef v k _ _)) -> (k, v)) fndefs
         baseClasses = Map.fromList $ 
-            map (\(ClassDef name cd) -> (name, classSize 0 cd)) base
-        classes = Map.union (Map.fromList $ map classGetter der) baseClasses
-        classGetter (ClassExtDef name ext cd) =
-            let extMap = baseClasses Map.! ext
-                extSize = Map.size extMap
-            in (name, Map.union (classSize (extSize + 1) cd) extMap)
+            map (\(ClassDef name cd) -> (name, classData 0 name cd)) base
+        sortedDer = sortExt der
+        extClasses = flip foldl' baseClasses
+            (\acc el -> uncurry Map.insert (classGetter el acc) acc) sortedDer
+        classes = Map.union extClasses baseClasses
+        classGetter (ClassExtDef name ext cd) classMap =
+            let extData = classMap Map.! ext
+                extSize = Map.size (extData^.fields)
+                drvData = classData extSize name cd
+                merged = ClassData 
+                    { _fields = Map.union (drvData^.fields) (extData^.fields)
+                    , _methods = Map.union (drvData^.methods) (extData^.methods)
+                    }
+            in (name, merged)
         
-classSize :: Int -> [ClassDecl] -> Map.Map String Int
-classSize st = fst . flip foldl' (Map.empty, st) (\(m, i) el -> case el of
-    FieldDef _ f -> (Map.insert f i m, i + 1)
-    _ -> (m, i))
+classData :: Int -> String -> [ClassDecl] -> ClassData
+classData st cname = fst . flip foldl' (emptyClass, st)
+    (\(m, i) el -> case el of
+        FieldDef t f -> (over fields (Map.insert f (i, t)) m, i + 1)
+        MethodDef (FnDef t name _ _) -> 
+            (over methods (Map.insert name (MethodName cname name, t)) m, i))
+    where
+        emptyClass = ClassData { _fields = Map.empty, _methods = Map.empty }
+
+sortExt :: [TopDef] -> [TopDef]
+sortExt exts = ((\(a, _, _) -> a) . nodeFromVertex) <$> sorted
+    where
+        indexNodes (l, i) c@(ClassExtDef name _ _) = ((name, i):l, i + 1)
+        nameMap = Map.fromList . fst $ foldl' indexNodes ([], 0) exts
+        createNode c@(ClassExtDef name ext _) = 
+            (c, nameMap Map.! name, maybe [] (:[]) (Map.lookup ext nameMap))
+        graphNodes = createNode <$> exts
+        (graph, nodeFromVertex, vertexFromKey) = Graph.graphFromEdges graphNodes
+        sorted = reverse $ Graph.topSort graph
+
+fields :: Lens' ClassData FieldMap
+fields = lens _fields (\cd newFlds -> cd { _fields = newFlds })
+
+methods :: Lens' ClassData MethodMap
+methods = lens _methods (\cd newMeth -> cd { _methods = newMeth })
 
 processProg :: Program -> GenState ()
 processProg (Program topdefs) = forM_ topdefs processTopDef
 
 processTopDef :: TopDef -> GenState ()
 processTopDef (FnTopDef fndef) = processFnDef fndef
-processTopDef (ClassExtDef i ext decls) = undefined
+processTopDef (ClassExtDef i ext decls) = processTopDef (ClassDef i decls)
 processTopDef (ClassDef i decls) = local (\r -> r { _className = Just i }) $
     mapM_ processFnDef (filterMethods decls [])
     where
         filterMethods [] acc = acc
         filterMethods (h:t) acc = case h of
-            MethodDef fndef -> filterMethods t (fndef:acc)
+            MethodDef fndef -> filterMethods t ((addSelf fndef):acc)
             FieldDef {} -> filterMethods t acc
+        addSelf (FnDef t name args block) = 
+            FnDef t name ((Arg (TClass i) "self"):args) block
 
 processFnDef :: FnDef -> GenState ()
 processFnDef fndef@(FnDef t name args block) = do
@@ -113,8 +150,8 @@ processStmt (Ass s expr) = do
         EFieldGet e field -> do
             e' <- processExpr e
             let TClass cname = varType e'
-            flds <- asks $ flip (Map.!) cname . _classes
-            let fld = flds Map.! field
+            flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
+            let fld = fst $ flds Map.! field
             output $ ClassStore e' fld tmp
     return False
 processStmt (Incr s) = processIncrStmt s (BAdd BPlus)
@@ -174,7 +211,7 @@ processIncrStmt :: Expr -> OpBin -> GenState Bool
 processIncrStmt (EVar i) op = do
     output $ Binary (Var i TInt) (Var i TInt) op (CInt 1)
     return False
-processIncrStmt e@(EArrGet e1 e2) op = do
+processIncrStmt (EArrGet e1 e2) op = do
     e1' <- processExpr e1
     e2' <- processExpr e2
     let TArray t = varType e1'
@@ -188,8 +225,8 @@ processIncrStmt (EFieldGet e field) op = do
     let t@(TClass cname) = varType e'
     tmp <- getClassField field t e'
     output $ Binary tmp tmp op (CInt 1)
-    flds <- asks $ flip (Map.!) cname . _classes
-    let fld = flds Map.! field
+    flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
+    let fld = fst $ flds Map.! field
     output $ ClassStore e' fld tmp
     return False
 
@@ -207,8 +244,16 @@ processItem _ (Init s expr) = do
 
 processExpr :: Expr -> GenState Var
 processExpr (EVar i) = do
-    t <- asks (flip (Map.!) i . _varTypes) 
-    return $ Var i t
+    -- t <- asks (flip (Map.!) i . _varTypes) 
+    -- return $ Var i t
+    varTypes <- asks _varTypes
+    maybeCname <- asks _className
+    case (Map.lookup i varTypes, maybeCname) of
+        (Just t, _) -> return $ Var i t
+        (Nothing, Just cname) -> do
+            -- flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
+            processExpr (EFieldGet (EVar "self") i)
+        _ -> undefined
 processExpr (ELitInt i) = return $ CInt i
 processExpr ELitTrue = return $ CBool True
 processExpr ELitFalse = return $ CBool False
@@ -221,14 +266,6 @@ processExpr (EApp fname exprs) = do
     let fname' = FunName fname
     output $ (if ftype == TVoid then Call else FCall t) fname' (length elist)
     return t
-    where
-        constToTemp :: Var -> GenState Var
-        constToTemp v@Var  {} = return v
-        constToTemp t@Temp {} = return t
-        constToTemp c = do
-            tmp <- nextVar (varType c)
-            output (Assign tmp c)
-            return tmp
 processExpr (EString s) = return . CString . strip $ s
     where 
         strip = lstrip . rstrip
@@ -244,7 +281,7 @@ processExpr (EArr t expr) = do
     return tmp
 processExpr (EClass t@(TClass className)) = do
     newFs <- asks $ Map.insert classAlloc t . _funs
-    csize <- asks $ Map.size . flip (Map.!) className . _classes
+    csize <- asks $ Map.size . (^.fields) . flip (Map.!) className . _classes
     app'  <- local (\r -> r { _funs = newFs }) $
         processExpr (EApp classAlloc [ELitInt (toInteger csize)])
     tmp   <- nextVar t
@@ -265,7 +302,25 @@ processExpr (EFieldGet e s) = do
             Var _ t@(TClass _)  -> getClassField s t e'
             Temp _ t@(TClass _) -> getClassField s t e'
     return tmp
-processExpr (EMethod e s exprs) = undefined
+processExpr (EMethod e mname exprs) = do
+    e' <- processExpr e
+    elist  <- forM exprs processExpr
+    elist' <- forM (e':elist) constToTemp
+    forM_ (reverse elist') (output . Param)
+    let TClass cname = varType e'
+    classes <- asks _classes
+    -- let mtds = case Map.lookup cname classes of
+    --         Just cls -> cls^.methods
+    --         Nothing -> undefined
+    mtds <- asks $ (^.methods) . flip (Map.!) cname . _classes
+    let (mtd, ftype) = mtds Map.! mname
+    -- (mtd, ftype) <- case Map.lookup mname mtds of
+    --         Just pair -> return pair
+    --         Nothing -> return (FunName $ show (cname, mname), TVoid)
+    t <- nextVar ftype
+    output $ (if ftype == TVoid then Call else FCall t) mtd (length elist')
+    return t
+
 processExpr (ENull s) = return $ CNull (TClass s)
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
@@ -351,9 +406,9 @@ getArraySize t v = do
 
 getClassField :: String -> Type -> Var -> GenState Var
 getClassField field t@(TClass cname) v = do
+    flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
+    let (fld, t) = flds Map.! field
     tmp  <- nextVar t
-    flds <- asks $ flip (Map.!) cname . _classes
-    let fld = flds Map.! field
     output $ ClassLoad tmp v fld
     return tmp
 
@@ -363,7 +418,15 @@ varToExpr v = case v of
     Temp s _ -> EVar s
     CInt i -> ELitInt i 
     CBool b -> if b then ELitTrue else ELitFalse 
-    CString s -> EString s        
+    CString s -> EString s
+
+constToTemp :: Var -> GenState Var
+constToTemp v@Var  {} = return v
+constToTemp t@Temp {} = return t
+constToTemp c = do
+    tmp <- nextVar (varType c)
+    output (Assign tmp c)
+    return tmp
 
 -- helper functions
 output :: Quadruple -> GenState ()

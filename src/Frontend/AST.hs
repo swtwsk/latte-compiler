@@ -15,6 +15,7 @@ module Frontend.AST (
 ) where
 
 import Utils.StringUtils
+import qualified Data.Ord as Ord
 
 data Program = Program [TopDef]
     deriving (Eq, Ord, Read)

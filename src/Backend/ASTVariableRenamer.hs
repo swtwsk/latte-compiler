@@ -18,20 +18,23 @@ renameNestedVariables (Program topdefs) = Program $ processTopDef <$> topdefs
 
 processTopDef :: TopDef -> TopDef
 processTopDef topdef = case topdef of
-    FnTopDef fndef -> FnTopDef $ processFnDef fndef
+    FnTopDef fndef -> FnTopDef $ processFnDef False fndef
     ClassExtDef i ext decls -> ClassExtDef i ext (processDecl <$> decls)
     ClassDef i decls -> ClassDef i (processDecl <$> decls)
     where
-        processDecl (MethodDef fndef) = MethodDef (processFnDef fndef)
+        processDecl (MethodDef fndef) = MethodDef (processFnDef True fndef)
         processDecl fd@(FieldDef {})  = fd
 
-processFnDef :: FnDef -> FnDef
-processFnDef (FnDef t s args block) = FnDef t s args res    
+processFnDef :: Bool -> FnDef -> FnDef
+processFnDef isMethod (FnDef t s args block) = FnDef t s args res    
     where
-        (res, _) = runRename (processBlock block) argsMap supp
+        (res, _) = runRename (processBlock block) argsMap' supp
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
         extractArg (Arg _ i) = (i, i)
-        argsMap = Map.fromList $ foldr ((:) . extractArg) [] args
+        argsMap = Map.fromList $ extractArg <$> args
+        argsMap' = if isMethod 
+            then Map.insert "self" "self" argsMap 
+            else argsMap
 
 processBlock :: Block -> RenameState Block
 processBlock (Block stmts) = fmap Block (forM stmts processStmt)
@@ -112,7 +115,11 @@ processItemVar s = do
         varBuilder v = "#" ++ s ++ "_" ++ v
 
 varFromExpr :: Expr -> RenameState Expr
-varFromExpr (EVar i) = varFromIdent i >>= return . EVar
+varFromExpr (EVar i) = do
+    i' <- varFromIdent i
+    case i' of
+        Just v -> return (EVar v)
+        Nothing -> varFromExpr (EFieldGet (EVar "self") i)
 varFromExpr (EArrGet e1 e2) = do
     e1' <- processExpr e1
     e2' <- processExpr e2
@@ -122,8 +129,14 @@ varFromExpr (EFieldGet e fieldName) = do
     return $ EFieldGet e' fieldName
 varFromExpr expr = undefined
 
-varFromIdent :: String -> RenameState String
-varFromIdent s = gets $ flip (Map.!) s
+varFromIdent :: String -> RenameState (Maybe String)
+varFromIdent s = do
+    env <- get
+    case Map.lookup s env of
+        Just x -> return (Just x)
+        Nothing -> case Map.lookup "self" env of
+            Just s -> return Nothing
+            Nothing -> undefined
 
 processCond :: (Expr -> Stmt -> Stmt) -> Expr -> Stmt -> RenameState Stmt
 processCond ctr expr stmt = do
