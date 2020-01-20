@@ -1,5 +1,7 @@
 module Backend.Compiler (compile) where
 
+import qualified Data.Bifunctor as Bi
+
 import Frontend.AST
 import qualified Backend.ASTConstOptimizer as ConstOpt
 import qualified Backend.ASTVariableRenamer as Renamer

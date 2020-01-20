@@ -13,6 +13,7 @@ import Backend.Quadruples
 import Globals
 
 data ReaderEnv = ReaderEnv { _funs      :: Map.Map String Type
+                           , _classes   :: ClassMap
                            , _varTypes  :: Map.Map String Type
                            , _className :: Maybe String }
 data StateEnv  = StateEnv  { _varSupply :: [String]
@@ -20,6 +21,9 @@ data StateEnv  = StateEnv  { _varSupply :: [String]
 type WrtList   = DList Quadruple
 
 type GenState = RWS ReaderEnv WrtList StateEnv
+
+type FieldMap  = Map.Map String Int
+type ClassMap  = Map.Map String FieldMap
 
 library :: Map.Map String Type
 library = Map.fromList [ ("printInt", TVoid)
@@ -35,14 +39,34 @@ generate prog@(Program topdefs) = toList wrtList
         (_, wrtList) = evalRWS (processProg prog) initReader initState
 
         initReader = ReaderEnv { _funs      = funcMap `Map.union` library
+                               , _classes   = classes
                                , _varTypes  = Map.empty
                                , _className = Nothing }
         initState  = StateEnv  { _varSupply = supp
                                , _nextLabel = 0 }
 
         supp = [replicate k ['a'..'z'] | k <- [1..]] >>= sequence
-        funcMap = Map.fromList $ map (\(FnTopDef (FnDef v k _ _)) -> (k, v)) $
-            filter (\d -> case d of {FnTopDef _ -> True; _ -> False}) topdefs
+
+        (fndefs, base, der) = flip foldl' ([], [], []) sortDef topdefs
+        sortDef (f, b, d) def = case def of
+            x@(FnTopDef _) -> (x:f, b, d)
+            x@(ClassDef {}) -> (f, x:b, d)
+            x@(ClassExtDef {}) -> (f, b, x:d)
+
+        funcMap = Map.fromList $ 
+            map (\(FnTopDef (FnDef v k _ _)) -> (k, v)) fndefs
+        baseClasses = Map.fromList $ 
+            map (\(ClassDef name cd) -> (name, classSize 0 cd)) base
+        classes = Map.union (Map.fromList $ map classGetter der) baseClasses
+        classGetter (ClassExtDef name ext cd) =
+            let extMap = baseClasses Map.! ext
+                extSize = Map.size extMap
+            in (name, Map.union (classSize (extSize + 1) cd) extMap)
+        
+classSize :: Int -> [ClassDecl] -> Map.Map String Int
+classSize st = fst . flip foldl' (Map.empty, st) (\(m, i) el -> case el of
+    FieldDef _ f -> (Map.insert f i m, i + 1)
+    _ -> (m, i))
 
 processProg :: Program -> GenState ()
 processProg (Program topdefs) = forM_ topdefs processTopDef
@@ -50,7 +74,13 @@ processProg (Program topdefs) = forM_ topdefs processTopDef
 processTopDef :: TopDef -> GenState ()
 processTopDef (FnTopDef fndef) = processFnDef fndef
 processTopDef (ClassExtDef i ext decls) = undefined
-processTopDef (ClassDef i decls) = undefined
+processTopDef (ClassDef i decls) = local (\r -> r { _className = Just i }) $
+    mapM_ processFnDef (filterMethods decls [])
+    where
+        filterMethods [] acc = acc
+        filterMethods (h:t) acc = case h of
+            MethodDef fndef -> filterMethods t (fndef:acc)
+            FieldDef {} -> filterMethods t acc
 
 processFnDef :: FnDef -> GenState ()
 processFnDef fndef@(FnDef t name args block) = do
@@ -80,7 +110,12 @@ processStmt (Ass s expr) = do
             e1' <- processExpr e1
             e2' <- processExpr e2
             output $ ArrStore e1' e2' tmp
-        EFieldGet e1 field -> undefined
+        EFieldGet e field -> do
+            e' <- processExpr e
+            let TClass cname = varType e'
+            flds <- asks $ flip (Map.!) cname . _classes
+            let fld = flds Map.! field
+            output $ ClassStore e' fld tmp
     return False
 processStmt (Incr s) = processIncrStmt s (BAdd BPlus)
 processStmt (Decr s) = processIncrStmt s (BAdd BMinus)
@@ -148,13 +183,15 @@ processIncrStmt e@(EArrGet e1 e2) op = do
     output $ Binary tmp tmp op (CInt 1)
     output $ ArrStore e1' e2' tmp
     return False
-processIncrStmt (EFieldGet e1 field) op = undefined
--- extractVar :: Expr -> GenState String
--- extractVar expr = case expr of
---     EVar i -> return i
---     EArrGet e1 e2 -> undefined
---     EFieldGet e1 field -> undefined
---     _ -> undefined
+processIncrStmt (EFieldGet e field) op = do
+    e' <- processExpr e
+    let t@(TClass cname) = varType e'
+    tmp <- getClassField field t e'
+    output $ Binary tmp tmp op (CInt 1)
+    flds <- asks $ flip (Map.!) cname . _classes
+    let fld = flds Map.! field
+    output $ ClassStore e' fld tmp
+    return False
 
 processItem :: Type -> Item -> GenState ()
 processItem t (NoInit s) = output $ Assign (Var s t) defVal
@@ -163,6 +200,7 @@ processItem t (NoInit s) = output $ Assign (Var s t) defVal
             TInt -> CInt 0
             TStr -> CString ""
             TBool -> CBool False
+            t@(TClass _) -> CNull t
 processItem _ (Init s expr) = do
     tmp <- processExpr expr
     output $ Assign (Var s (varType tmp)) tmp
@@ -204,7 +242,14 @@ processExpr (EArr t expr) = do
         processExpr (EApp arrayAlloc [varToExpr expr', ELitInt 4])
     output $ Assign tmp app'
     return tmp
-processExpr (EClass t) = undefined
+processExpr (EClass t@(TClass className)) = do
+    newFs <- asks $ Map.insert classAlloc t . _funs
+    csize <- asks $ Map.size . flip (Map.!) className . _classes
+    app'  <- local (\r -> r { _funs = newFs }) $
+        processExpr (EApp classAlloc [ELitInt (toInteger csize)])
+    tmp   <- nextVar t
+    output $ Assign tmp app'
+    return tmp
 processExpr (EArrGet e1 e2) = do
     e1' <- processExpr e1
     e2' <- processExpr e2
@@ -214,15 +259,14 @@ processExpr (EArrGet e1 e2) = do
     return tmp
 processExpr (EFieldGet e s) = do
     e' <- processExpr e
-    t' <- case e' of
-            Var _ t@(TArray _) -> return t
-            Temp _ t@(TArray _) -> return t
-            _ -> undefined
-    tmp <- nextVar t'
-    output $ ArrSize tmp e'
+    tmp <- case e' of
+            Var _ t@(TArray _)  -> getArraySize t e'
+            Temp _ t@(TArray _) -> getArraySize t e'
+            Var _ t@(TClass _)  -> getClassField s t e'
+            Temp _ t@(TClass _) -> getClassField s t e'
     return tmp
 processExpr (EMethod e s exprs) = undefined
-processExpr (ENull s) = undefined
+processExpr (ENull s) = return $ CNull (TClass s)
 processExpr (Neg expr) = processUnExpr expr UMinus
 processExpr (Not expr) = processUnExpr expr UNot
 processExpr (EMul e1 op e2) = processBinExpr e1 e2 (BMul $ getOp op)
@@ -298,6 +342,20 @@ processAddExpr e1 e2 = do
         TStr -> processExpr (EApp concatStringName 
             [varToExpr a1, varToExpr a2]) >>= (output . Assign t)
     return t
+
+getArraySize :: Type -> Var -> GenState Var 
+getArraySize t v = do
+    tmp <- nextVar t
+    output $ ArrSize tmp v
+    return tmp
+
+getClassField :: String -> Type -> Var -> GenState Var
+getClassField field t@(TClass cname) v = do
+    tmp  <- nextVar t
+    flds <- asks $ flip (Map.!) cname . _classes
+    let fld = flds Map.! field
+    output $ ClassLoad tmp v fld
+    return tmp
 
 varToExpr :: Var -> Expr
 varToExpr v = case v of

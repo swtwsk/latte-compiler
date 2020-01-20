@@ -11,11 +11,14 @@ module Backend.Quadruples (
     varType
 ) where
 
+import qualified Data.Map as Map
+
 import Frontend.AST (Type(..), Arg(..))
 import Utils.StringUtils (safeShowList)
 
 data Var = Var String Type
          | Temp String Type
+         | CNull Type
          | CInt Integer 
          | CBool Bool 
          | CString String
@@ -36,9 +39,10 @@ data Quadruple = Binary Var Var OpBin Var
                | Param Var
                | Return (Maybe Var)
                | ArrSize Var Var      -- x := var.length
-               -- ArrNew Var Type Var  -- x := new T[y]
                | ArrLoad Var Var Var  -- x := y[z]
                | ArrStore Var Var Var -- x[y] := y
+               | ClassLoad Var Var Int -- x := y.field
+               | ClassStore Var Int Var -- x.field := y
 
 data OpBin = BAdd OpAdd | BMul OpMul | BRel OpRel | BLog OpLog
 data OpUn  = UMinus | UNot
@@ -51,6 +55,7 @@ varType :: Var -> Type
 varType var = case var of
     Var _ t   -> t
     Temp _ t  -> t
+    CNull t   -> t
     CInt _    -> TInt
     CBool _   -> TBool
     CString _ -> TStr
@@ -74,14 +79,18 @@ instance Show Quadruple where
     show (Param var) = "param " ++ show var
     show (Return var) = "return " ++ maybe "" show var
     show (ArrSize v arr) = show v ++ " := getsize " ++ show arr
-    -- show (ArrNew v t i) = show v ++ " := newarray " ++ show t ++ ", " ++ show i
     show (ArrLoad x y z) = show x ++ " := load " ++ show y ++ ", " ++ show z
     show (ArrStore x y z) = 
         "store " ++ show x ++ " [" ++ show y ++ "], " ++ show z
+    show (ClassLoad x y field) = show x ++ " := loadfld " ++ show y ++ 
+        " . " ++ show field
+    show (ClassStore x field y) = "storefld " ++ show x ++ " . " ++ 
+        show field ++ ", " ++ show y
 
 instance Show Var where
     show (Var s _)   = s
     show (Temp s _)  = "%" ++ s
+    show (CNull t)   = "null"
     show (CInt i)    = show i
     show (CBool b)   = show b
     show (CString s) = '\"' : s ++ "\""

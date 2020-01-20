@@ -170,16 +170,6 @@ printQuadruple (ArrSize lvar arr) = do
     output $ Mov eax (Register EAX Lower32 True)
     lAddr <- getAddrOrValue lvar False
     output $ Mov lAddr eax
--- printQuadruple (ArrNew lvar t size) = do
---     output $ Mov eax (Const 4)
---     output $ Push eax
---     sizeAddr <- getAddrOrValue size False
---     output $ Mov eax sizeAddr
---     output $ Push eax
---     output $ AsmCall arrayAlloc
---     output (Add esp (Const $ addrSize 2))
---     lAddr <- getAddrOrValue lvar False
---     output $ Mov lAddr eax
 printQuadruple (ArrLoad lvar arr i) = do
     arrAddr <- getAddrOrValue arr False
     output $ Mov eax arrAddr
@@ -195,8 +185,21 @@ printQuadruple (ArrStore larr i rvar) = do
     output $ MovAdd eax (eax, Const 4)  -- eax = *array
     iAddr <- getAddrOrValue i True
     output $ LeaAdd eax (eax, 4, iAddr)  -- eax = array[i]
-    lAddr <- getAddrOrValue rvar True -- edx
-    output $ Mov (Register EAX Lower32 True) lAddr
+    rAddr <- getAddrOrValue rvar True -- edx
+    output $ Mov (Register EAX Lower32 True) rAddr
+printQuadruple (ClassLoad lvar cl fieldNum) = do
+    clAddr <- getAddrOrValue cl False
+    output $ Mov eax clAddr
+    output $ LeaAdd eax (eax, 4, Const fieldNum)
+    output $ Mov eax (Register EAX Lower32 True)
+    lAddr <- getAddrOrValue lvar False
+    output $ Mov lAddr eax
+printQuadruple (ClassStore cl fieldNum rvar) = do
+    clAddr <- getAddrOrValue cl False
+    output $ Mov eax clAddr
+    output $ LeaAdd eax (eax, 4, Const fieldNum)
+    rAddr <- getAddrOrValue rvar True -- edx
+    output $ Mov (Register EAX Lower32 True) rAddr
 
 processBinary :: Var -> Var -> OpBin -> Var -> GenerateM ()
 processBinary lvar a (BAdd op) b = processAddBinary lvar a op' b
@@ -338,6 +341,7 @@ getAddrOrValue (Temp s _) rightOperand = do
     addr <- addrSize <$> getVarLocFromState s
     let mem = Stack (Just DWORD) (-addr) True
     if rightOperand then output (Mov edx mem) >> return edx else return mem
+getAddrOrValue (CNull _) _ = return $ Const 0
 getAddrOrValue (CInt i) _ = return $ Const (fromIntegral i)
 getAddrOrValue (CBool b) _ = return $ Const (if b then 1 else 0)
 getAddrOrValue (CString s) _ = do
