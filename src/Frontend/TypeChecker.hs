@@ -13,7 +13,7 @@ import Control.Monad (unless, void)
 import Data.List (foldl')
 import Data.Bifunctor (bimap)
 
-import Control.Lens ((^.), (%=), over)
+import Lens.Micro.Platform ((^.), (%=), over)
 
 import AST.AbsLatte
 import Utils.ConstantExpressions (evaluateBool)

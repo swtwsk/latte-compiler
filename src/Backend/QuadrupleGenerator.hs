@@ -5,7 +5,7 @@ import Control.Monad.Identity
 
 import Data.DList (DList, singleton, toList)
 import Data.List (foldl')
-import Control.Lens (Lens', lens, (^.), over)
+import Lens.Micro.Platform (Lens', lens, (^.), over)
 import qualified Data.Map as Map
 
 import qualified Data.Graph as Graph

@@ -1,7 +1,7 @@
 module Backend.X86.AsmGenerator (compile) where
 
 import Control.Monad.RWS
-import Control.Lens ((^.))
+import Lens.Micro.Platform ((^.))
 import Data.DList (DList, singleton, toList)
 import Data.List (foldl')
 import Data.Maybe (isJust)

@@ -8,7 +8,7 @@ module Backend.FuncDef (
     locCount,
 ) where
 
-import Control.Lens
+import Lens.Micro.Platform
 import Control.Monad.State
 import Control.Monad (unless)
 import qualified Data.Set as Set
