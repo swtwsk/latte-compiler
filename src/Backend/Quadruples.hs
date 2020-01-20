@@ -43,7 +43,6 @@ data Quadruple = Binary Var Var OpBin Var
                | ArrStore Var Var Var -- x[y] := y
                | ClassLoad Var Var Int -- x := y.field
                | ClassStore Var Int Var -- x.field := y
-               | Debug String
 
 data OpBin = BAdd OpAdd | BMul OpMul | BRel OpRel | BLog OpLog
 data OpUn  = UMinus | UNot
@@ -87,7 +86,6 @@ instance Show Quadruple where
         " . " ++ show field
     show (ClassStore x field y) = "storefld " ++ show x ++ " . " ++ 
         show field ++ ", " ++ show y
-    show (Debug s) = s
 
 instance Show Var where
     show (Var s _)   = s

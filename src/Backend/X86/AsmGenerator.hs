@@ -325,10 +325,16 @@ multiply lvar a op b = case op of
             aAddr <- getAddrOrValue a False
             output $ Mov eax aAddr
             output Cdq
-            bAddr <- getAddrOrValue b False
+            bAddr <- getAddrOrValue b False >>= constToEdx
             output $ IDiv bAddr
             lAddr <- getAddrOrValue lvar False
             output $ Mov lAddr reg
+        ecx = Register ECX Lower32 False
+        constToEdx mem = case mem of
+            r@(Register {}) -> return r
+            s@(Stack {}) -> return s
+            d@(Data {}) -> return d
+            c@(Const _) -> output (Mov ecx c) >> return ecx
 
 getAddrOrValue :: Var -> Bool -> GenerateM Memory
 getAddrOrValue (Var s _) rightOperand = do

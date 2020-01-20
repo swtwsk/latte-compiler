@@ -244,16 +244,16 @@ processItem _ (Init s expr) = do
 
 processExpr :: Expr -> GenState Var
 processExpr (EVar i) = do
-    -- t <- asks (flip (Map.!) i . _varTypes) 
-    -- return $ Var i t
-    varTypes <- asks _varTypes
-    maybeCname <- asks _className
-    case (Map.lookup i varTypes, maybeCname) of
-        (Just t, _) -> return $ Var i t
-        (Nothing, Just cname) -> do
-            -- flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
-            processExpr (EFieldGet (EVar "self") i)
-        _ -> undefined
+    t <- asks (flip (Map.!) i . _varTypes) 
+    return $ Var i t
+    -- varTypes <- asks _varTypes
+    -- maybeCname <- asks _className
+    -- case (Map.lookup i varTypes, maybeCname) of
+    --     (Just t, _) -> return $ Var i t
+    --     (Nothing, Just cname) -> do
+    --         -- flds <- asks $ (^.fields) . flip (Map.!) cname . _classes
+    --         processExpr (EFieldGet (EVar "self") i)
+    --     _ -> undefined
 processExpr (ELitInt i) = return $ CInt i
 processExpr ELitTrue = return $ CBool True
 processExpr ELitFalse = return $ CBool False
